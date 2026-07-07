@@ -120,7 +120,7 @@ export default function Games() {
 
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
+                  <table className="w-full min-w-[420px] text-sm text-left">
                     <thead className="bg-secondary/50 text-muted-foreground text-xs uppercase border-b border-border">
                       <tr>
                         <th className="px-4 py-2">Bookmaker</th>
