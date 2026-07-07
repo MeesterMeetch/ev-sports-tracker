@@ -107,6 +107,21 @@ export const GetEvCardResponse = zod.object({
 
 
 /**
+ * @summary Get probable starters for today's MLB and NHL games
+ */
+export const ListStartersResponseItem = zod.object({
+  "homeTeam": zod.string(),
+  "awayTeam": zod.string(),
+  "sport": zod.string(),
+  "homeStarter": zod.string().nullish(),
+  "awayStarter": zod.string().nullish(),
+  "starterType": zod.string().describe('pitcher | goalie'),
+  "confirmed": zod.boolean()
+})
+export const ListStartersResponse = zod.array(ListStartersResponseItem)
+
+
+/**
  * @summary Get top near-miss bets for today
  */
 export const GetNearMissesQueryParams = zod.object({

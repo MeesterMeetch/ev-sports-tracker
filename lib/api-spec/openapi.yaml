@@ -97,6 +97,21 @@ paths:
               schema:
                 $ref: "#/components/schemas/EvCard"
 
+  /odds/starters:
+    get:
+      operationId: listStarters
+      tags: [odds]
+      summary: Get probable starters for today's MLB and NHL games
+      responses:
+        "200":
+          description: Probable starters by game
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GameStarter"
+
   /odds/near-misses:
     get:
       operationId: getNearMisses
@@ -370,6 +385,26 @@ paths:
 
 components:
   schemas:
+    GameStarter:
+      type: object
+      required: [homeTeam, awayTeam, sport, starterType, confirmed]
+      properties:
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        sport:
+          type: string
+        homeStarter:
+          type: ["string", "null"]
+        awayStarter:
+          type: ["string", "null"]
+        starterType:
+          type: string
+          description: "pitcher | goalie"
+        confirmed:
+          type: boolean
+
     HealthStatus:
       type: object
       required: [status]

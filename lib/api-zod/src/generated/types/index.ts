@@ -20,6 +20,7 @@ export * from './entityCount';
 export * from './evBet';
 export * from './evCard';
 export * from './gameAnalysisInput';
+export * from './gameStarter';
 export * from './gameWithOdds';
 export * from './getEvCardParams';
 export * from './getNearMissesParams';

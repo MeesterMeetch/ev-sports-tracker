@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { IRouter } from "express";
 import { fetchSports, fetchMultiSportOdds, fetchOdds } from "../lib/odds";
+import { fetchTodayStarters } from "../lib/starters";
 import {
   americanToImpliedProb,
   deVig2Way,
@@ -312,6 +313,16 @@ router.get("/odds/near-misses", async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err }, "Failed to fetch near misses");
     res.status(500).json({ error: "Failed to fetch near misses" });
+  }
+});
+
+router.get("/odds/starters", async (_req, res): Promise<void> => {
+  try {
+    const starters = await fetchTodayStarters();
+    res.json(starters);
+  } catch (err) {
+    _req.log.error({ err }, "Failed to fetch starters");
+    res.status(500).json({ error: "Failed to fetch starters" });
   }
 });
 

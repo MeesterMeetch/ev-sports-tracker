@@ -5,6 +5,19 @@
  * EV Sports Betting Tracker + Signal vs. Noise API
  * OpenAPI spec version: 0.1.0
  */
+export interface GameStarter {
+  homeTeam: string;
+  awayTeam: string;
+  sport: string;
+  /** @nullable */
+  homeStarter?: string | null;
+  /** @nullable */
+  awayStarter?: string | null;
+  /** pitcher | goalie */
+  starterType: string;
+  confirmed: boolean;
+}
+
 export interface HealthStatus {
   status: string;
 }
