@@ -24,11 +24,12 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SaveBetDialog } from "@/components/save-bet-dialog";
-import { Star, TrendingUp, AlertTriangle, Plus, RefreshCw } from "lucide-react";
+import { Star, TrendingUp, AlertTriangle, Plus, RefreshCw, EyeOff, Eye, WifiOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const REFRESH_SECONDS = 300;
 const EV_SANITY_THRESHOLD = 30;
+const NEAR_MISS_MIN_EV = 2.0;
 
 function normalize(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
@@ -103,9 +104,81 @@ function StaleBadge() {
   );
 }
 
+function SkeletonCard() {
+  return (
+    <div className="rounded-lg border border-border bg-card/50 flex flex-col animate-pulse">
+      <div className="p-4 border-b border-border/50 space-y-2">
+        <div className="flex justify-between">
+          <div className="h-3 w-24 rounded bg-secondary" />
+          <div className="flex gap-0.5">
+            {[1, 2, 3, 4, 5].map((j) => <div key={j} className="h-4 w-4 rounded bg-secondary" />)}
+          </div>
+        </div>
+        <div className="h-5 w-3/4 rounded bg-secondary" />
+      </div>
+      <div className="p-4 flex-1 space-y-3">
+        {[1, 2, 3].map((j) => (
+          <div key={j} className="flex justify-between">
+            <div className="h-3 w-20 rounded bg-secondary" />
+            <div className="h-3 w-28 rounded bg-secondary" />
+          </div>
+        ))}
+        <div className="h-10 rounded bg-secondary" />
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/50">
+          <div className="space-y-1">
+            <div className="h-3 w-8 rounded bg-secondary" />
+            <div className="h-6 w-16 rounded bg-secondary" />
+          </div>
+          <div className="space-y-1 flex flex-col items-end">
+            <div className="h-3 w-16 rounded bg-secondary" />
+            <div className="h-6 w-14 rounded bg-secondary" />
+          </div>
+        </div>
+        <div className="h-9 rounded bg-secondary mt-4" />
+      </div>
+    </div>
+  );
+}
+
+function ErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <Card className="border-border bg-card/50">
+      <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+        <WifiOff className="w-12 h-12 text-muted-foreground mb-4" />
+        <h3 className="text-lg font-bold mb-1">Couldn't reach the market feed</h3>
+        <p className="text-muted-foreground text-sm max-w-sm mb-6">
+          Check that your Odds API key is valid and that the server is running.
+        </p>
+        <Button variant="outline" onClick={onRetry}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Try again
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function NearMissBar({ evPercent }: { evPercent: number }) {
+  const pct = Math.min(100, Math.max(0, (evPercent / NEAR_MISS_MIN_EV) * 100));
+  return (
+    <div className="flex items-center gap-2 w-24">
+      <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+        <div
+          className="h-full rounded-full bg-yellow-500/70 transition-all"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-[11px] font-mono text-muted-foreground tabular-nums w-10 text-right">
+        {formatPercent(evPercent)}
+      </span>
+    </div>
+  );
+}
+
 export default function Home() {
   const [sport, setSport] = useState<string>("all");
   const [countdown, setCountdown] = useState(REFRESH_SECONDS);
+  const [hideStale, setHideStale] = useState(false);
   const [pendingBet, setPendingBet] = useState<EvBet | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -116,11 +189,20 @@ export default function Home() {
 
   const queryParams = sport !== "all" ? { sport } : {};
 
-  const { data: evCard, isLoading: isEvLoading, refetch: refetchEv } = useGetEvCard(queryParams, {
-    query: { queryKey: getGetEvCardQueryKey(queryParams) },
+  const {
+    data: evCard,
+    isLoading: isEvLoading,
+    isError: isEvError,
+    refetch: refetchEv,
+  } = useGetEvCard(queryParams, {
+    query: { queryKey: getGetEvCardQueryKey(queryParams), retry: 1 },
   });
 
-  const { data: nearMisses, isLoading: isNearMissLoading, refetch: refetchNear } = useGetNearMisses(queryParams, {
+  const {
+    data: nearMisses,
+    isLoading: isNearMissLoading,
+    refetch: refetchNear,
+  } = useGetNearMisses(queryParams, {
     query: { queryKey: getGetNearMissesQueryKey(queryParams) },
   });
 
@@ -184,7 +266,11 @@ export default function Home() {
     : false;
 
   const activeSports = sports?.filter((s) => s.active) || [];
-  const betGroups = groupBets(evCard?.bets ?? []);
+  const allGroups = groupBets(evCard?.bets ?? []);
+  const staleCount = allGroups.filter(({ best }) => best.evPercent > EV_SANITY_THRESHOLD).length;
+  const betGroups = hideStale
+    ? allGroups.filter(({ best }) => best.evPercent <= EV_SANITY_THRESHOLD)
+    : allGroups;
 
   const mins = Math.floor(countdown / 60);
   const secs = countdown % 60;
@@ -198,7 +284,19 @@ export default function Home() {
           <p className="text-muted-foreground text-sm">Rigorous +EV opportunities</p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <div className="w-full sm:w-64">
+          {staleCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setHideStale((h) => !h)}
+              className={`shrink-0 gap-1.5 text-xs ${hideStale ? "border-primary text-primary" : "text-muted-foreground"}`}
+              title={hideStale ? "Show stale lines" : "Hide stale lines"}
+            >
+              {hideStale ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              {hideStale ? `Show stale (${staleCount})` : `Hide stale (${staleCount})`}
+            </Button>
+          )}
+          <div className="w-full sm:w-56">
             <Select value={sport} onValueChange={setSport}>
               <SelectTrigger data-testid="select-sport">
                 <SelectValue placeholder="All Sports" />
@@ -225,7 +323,11 @@ export default function Home() {
       </div>
 
       {isEvLoading ? (
-        <div className="text-muted-foreground py-12 text-center animate-pulse">Scanning markets...</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3, 4, 5, 6].map((i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : isEvError ? (
+        <ErrorState onRetry={handleRefresh} />
       ) : betGroups.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {betGroups.map(({ best: bet, alternates }, i) => {
@@ -237,7 +339,10 @@ export default function Home() {
               bet.market === "h2h";
 
             return (
-              <Card key={`${bet.gameId}-${bet.selection}-${i}`} className="border-border bg-card/50 flex flex-col">
+              <Card
+                key={`${bet.gameId}-${bet.selection}-${i}`}
+                className={`border-border flex flex-col transition-opacity ${isStale ? "bg-card/30 opacity-80" : "bg-card/50"}`}
+              >
                 <CardHeader className="pb-2 border-b border-border/50">
                   <div className="flex justify-between items-start">
                     <div className="space-y-0.5">
@@ -281,14 +386,16 @@ export default function Home() {
                     </div>
 
                     {alternates.length > 0 && (
-                      <div className="text-xs text-muted-foreground border-t border-border/40 pt-2">
-                        <span className="mr-1">Also at:</span>
+                      <div className="text-xs text-muted-foreground border-t border-border/40 pt-2 space-y-0.5">
+                        <span className="text-[11px] uppercase tracking-wide">Also at</span>
                         {alternates.map((alt, j) => (
-                          <span key={j}>
-                            {j > 0 && " · "}
-                            <span className="text-foreground/70">{alt.bookmaker}</span>{" "}
-                            <span className="font-mono">{formatAmericanOdds(alt.americanOdds)}</span>
-                          </span>
+                          <div key={j} className="flex justify-between items-center">
+                            <span className="text-foreground/70">{alt.bookmaker}</span>
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono text-foreground/80">{formatAmericanOdds(alt.americanOdds)}</span>
+                              <span className="text-green-500/70 font-medium">+{formatPercent(alt.evPercent)}</span>
+                            </span>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -339,28 +446,34 @@ export default function Home() {
             <AlertTriangle className="w-5 h-5 text-yellow-500" />
             <h2 className="text-xl font-bold tracking-tight">Near Misses</h2>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-sm text-left">
               <thead className="bg-secondary text-secondary-foreground uppercase text-xs">
                 <tr>
-                  <th className="px-4 py-3 rounded-tl">Matchup</th>
+                  <th className="px-4 py-3">Matchup</th>
                   <th className="px-4 py-3">Selection</th>
                   <th className="px-4 py-3">Bookmaker</th>
                   <th className="px-4 py-3">Current</th>
                   <th className="px-4 py-3 text-yellow-500">Target</th>
-                  <th className="px-4 py-3 rounded-tr">Current EV</th>
+                  <th className="px-4 py-3">Proximity</th>
                 </tr>
               </thead>
               <tbody>
                 {isNearMissLoading ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground animate-pulse">
-                      Loading near misses...
-                    </td>
-                  </tr>
+                  <>
+                    {[1, 2, 3].map((i) => (
+                      <tr key={i} className="border-b border-border animate-pulse">
+                        {[1, 2, 3, 4, 5, 6].map((j) => (
+                          <td key={j} className="px-4 py-3">
+                            <div className="h-3 rounded bg-secondary w-3/4" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </>
                 ) : (
                   nearMisses?.slice(0, 5).map((miss, i) => (
-                    <tr key={`${miss.gameId}-${i}`} className="border-b border-border hover:bg-secondary/20">
+                    <tr key={`${miss.gameId}-${i}`} className="border-b border-border hover:bg-secondary/20 last:border-0">
                       <td className="px-4 py-3 font-medium">
                         <span className="inline-block bg-secondary text-secondary-foreground font-semibold px-1.5 py-0.5 rounded text-[10px] tracking-wide mr-1.5">
                           {formatSportKey(miss.sport)}
@@ -377,8 +490,8 @@ export default function Home() {
                       <td className="px-4 py-3 font-mono text-yellow-500 font-bold">
                         {formatAmericanOdds(miss.breakEvenOdds)}
                       </td>
-                      <td className="px-4 py-3 font-mono text-muted-foreground">
-                        {formatPercent(miss.evPercent)}
+                      <td className="px-4 py-3">
+                        <NearMissBar evPercent={miss.evPercent} />
                       </td>
                     </tr>
                   ))
