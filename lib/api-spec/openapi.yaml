@@ -3,7 +3,7 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: EV Sports Betting Tracker API
+  description: EV Sports Betting Tracker + Signal vs. Noise API
 servers:
   - url: /api
     description: Base API path
@@ -16,6 +16,8 @@ tags:
     description: Bet card management
   - name: analysis
     description: AI analysis
+  - name: email
+    description: Signal vs. Noise email intelligence
 paths:
   /healthz:
     get:
@@ -56,13 +58,11 @@ paths:
           required: false
           schema:
             type: string
-          description: Sport key filter (e.g. americanfootball_nfl, baseball_mlb)
         - name: markets
           in: query
           required: false
           schema:
             type: string
-          description: Comma-separated markets (h2h, spreads, totals)
       responses:
         "200":
           description: Games with odds and EV data
@@ -89,7 +89,6 @@ paths:
           required: false
           schema:
             type: number
-          description: Minimum EV percentage (default 2.0)
       responses:
         "200":
           description: Positive EV bets and near misses
@@ -123,7 +122,7 @@ paths:
     get:
       operationId: listBets
       tags: [bets]
-      summary: List saved bets (bet tracker)
+      summary: List saved bets
       responses:
         "200":
           description: List of tracked bets
@@ -155,7 +154,7 @@ paths:
     patch:
       operationId: updateBet
       tags: [bets]
-      summary: Update bet result (win/loss/push)
+      summary: Update bet result
       parameters:
         - name: id
           in: path
@@ -206,13 +205,13 @@ paths:
     post:
       operationId: analyzeGame
       tags: [analysis]
-      summary: AI analysis of a specific game using the v4-O framework
+      summary: AI analysis of a game
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/AnalysisRequest"
+              $ref: "#/components/schemas/GameAnalysisInput"
       responses:
         "200":
           description: AI analysis result
@@ -220,6 +219,154 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AnalysisResult"
+
+  /email/sync:
+    post:
+      operationId: syncEmails
+      tags: [email]
+      summary: Fetch latest emails from Gmail and run AI signal scoring
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncInput"
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+
+  /email/signals:
+    get:
+      operationId: listSignals
+      tags: [email]
+      summary: List processed emails with signal scores
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter: signal | noise | all (default: all)"
+        - name: minScore
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Minimum signal score 0-100
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Email signals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EmailSignal"
+
+  /email/actions:
+    get:
+      operationId: listActions
+      tags: [email]
+      summary: List extracted action items
+      parameters:
+        - name: done
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Action items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActionItem"
+
+  /email/actions/{id}:
+    patch:
+      operationId: updateAction
+      tags: [email]
+      summary: Mark action item done/undone
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActionUpdate"
+      responses:
+        "200":
+          description: Updated action item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionItem"
+
+  /email/entities:
+    get:
+      operationId: listEntities
+      tags: [email]
+      summary: List key people, companies and topics mentioned across emails
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter: person | company | topic | org"
+      responses:
+        "200":
+          description: Entities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EntityCount"
+
+  /email/trends:
+    get:
+      operationId: listTrends
+      tags: [email]
+      summary: Emerging topics and trends across recent emails
+      responses:
+        "200":
+          description: Trends
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Trend"
+
+  /email/stats:
+    get:
+      operationId: getEmailStats
+      tags: [email]
+      summary: Signal vs. noise inbox stats
+      responses:
+        "200":
+          description: Email stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailStats"
 
 components:
   schemas:
@@ -251,10 +398,8 @@ components:
           type: string
         price:
           type: number
-          description: American odds
         point:
           type: ["number", "null"]
-          description: Spread or total line
 
     Market:
       type: object
@@ -262,7 +407,6 @@ components:
       properties:
         key:
           type: string
-          description: Market type (h2h, spreads, totals)
         outcomes:
           type: array
           items:
@@ -305,16 +449,12 @@ components:
           type: number
         noVigProb:
           type: number
-          description: Sharp no-vig probability (0-1)
         estimatedProb:
           type: number
-          description: Our estimated true probability (0-1)
         evPercent:
           type: number
-          description: Expected value percentage
         kellyFraction:
           type: number
-          description: Quarter-Kelly fraction
         suggestedUnits:
           type: number
         commenceTime:
@@ -323,7 +463,6 @@ components:
           type: ["number", "null"]
         confidence:
           type: ["integer", "null"]
-          description: Star rating 1-5
 
     NearMiss:
       type: object
@@ -351,7 +490,6 @@ components:
           type: number
         breakEvenOdds:
           type: number
-          description: The American odds price at which this bet becomes +2% EV
         commenceTime:
           type: string
 
@@ -423,7 +561,6 @@ components:
           type: number
         status:
           type: string
-          description: pending | won | lost | push
         pnl:
           type: ["number", "null"]
         commenceTime:
@@ -469,7 +606,6 @@ components:
       properties:
         status:
           type: string
-          description: pending | won | lost | push
         pnl:
           type: ["number", "null"]
         notes:
@@ -515,7 +651,7 @@ components:
         roi:
           type: number
 
-    AnalysisRequest:
+    GameAnalysisInput:
       type: object
       required: [gameId, homeTeam, awayTeam, sport]
       properties:
@@ -544,7 +680,6 @@ components:
           type: string
         confidence:
           type: integer
-          description: 1-5 star rating
         keyFactors:
           type: array
           items:
@@ -553,3 +688,153 @@ components:
           type: array
           items:
             type: string
+
+    SyncInput:
+      type: object
+      properties:
+        maxEmails:
+          type: integer
+          description: Max emails to fetch and analyze (default 20)
+        query:
+          type: ["string", "null"]
+          description: Gmail search query (default is:inbox)
+
+    SyncResult:
+      type: object
+      required: [processed, skipped, newSignals, newActions]
+      properties:
+        processed:
+          type: integer
+        skipped:
+          type: integer
+        newSignals:
+          type: integer
+        newActions:
+          type: integer
+        durationMs:
+          type: integer
+
+    EmailSignal:
+      type: object
+      required: [id, gmailId, fromName, fromEmail, subject, date, bodySnippet, signalScore, category, summary, topics, processedAt]
+      properties:
+        id:
+          type: integer
+        gmailId:
+          type: string
+        fromName:
+          type: string
+        fromEmail:
+          type: string
+        subject:
+          type: string
+        date:
+          type: string
+        bodySnippet:
+          type: string
+        signalScore:
+          type: integer
+          description: 0-100, higher = more signal
+        category:
+          type: string
+          description: signal | noise
+        summary:
+          type: string
+        topics:
+          type: array
+          items:
+            type: string
+        processedAt:
+          type: string
+
+    ActionItem:
+      type: object
+      required: [id, emailId, text, priority, done, createdAt]
+      properties:
+        id:
+          type: integer
+        emailId:
+          type: integer
+        text:
+          type: string
+        deadline:
+          type: ["string", "null"]
+        priority:
+          type: string
+          description: high | medium | low
+        done:
+          type: boolean
+        createdAt:
+          type: string
+
+    ActionUpdate:
+      type: object
+      properties:
+        done:
+          type: boolean
+        text:
+          type: ["string", "null"]
+        deadline:
+          type: ["string", "null"]
+        priority:
+          type: ["string", "null"]
+
+    EntityCount:
+      type: object
+      required: [name, type, count]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          description: person | company | topic | org
+        count:
+          type: integer
+
+    Trend:
+      type: object
+      required: [topic, count, recentEmails]
+      properties:
+        topic:
+          type: string
+        count:
+          type: integer
+        recentEmails:
+          type: array
+          items:
+            type: string
+          description: Recent email subjects mentioning this topic
+
+    EmailStats:
+      type: object
+      required: [total, signals, noise, signalRate, avgSignalScore, pendingActions, topSenders]
+      properties:
+        total:
+          type: integer
+        signals:
+          type: integer
+        noise:
+          type: integer
+        signalRate:
+          type: number
+        avgSignalScore:
+          type: number
+        pendingActions:
+          type: integer
+        topSenders:
+          type: array
+          items:
+            $ref: "#/components/schemas/SenderStat"
+
+    SenderStat:
+      type: object
+      required: [fromEmail, fromName, count, avgScore]
+      properties:
+        fromEmail:
+          type: string
+        fromName:
+          type: string
+        count:
+          type: integer
+        avgScore:
+          type: number
