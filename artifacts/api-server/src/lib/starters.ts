@@ -58,6 +58,22 @@ async function fetchMlbStarters(): Promise<GameStarter[]> {
   }
 }
 
+interface NhlTeam {
+  name?: { default?: string };
+  commonName?: { default?: string };
+  placeName?: { default?: string };
+  abbrev?: string;
+}
+
+function getNhlTeamName(team: NhlTeam): string {
+  if (team.name?.default) return team.name.default;
+  const place = team.placeName?.default ?? "";
+  const common = team.commonName?.default ?? "";
+  const full = `${place} ${common}`.trim();
+  if (full) return full;
+  return team.abbrev ?? "Unknown";
+}
+
 async function fetchNhlGames(): Promise<GameStarter[]> {
   const url = "https://api-web.nhle.com/v1/schedule/now";
   try {
@@ -66,19 +82,18 @@ async function fetchNhlGames(): Promise<GameStarter[]> {
     const json = (await res.json()) as {
       gameWeek: Array<{
         games: Array<{
-          awayTeam: { name: { default: string } };
-          homeTeam: { name: { default: string } };
+          awayTeam: NhlTeam;
+          homeTeam: NhlTeam;
         }>;
       }>;
     };
 
     const starters: GameStarter[] = [];
-    const today = new Date().toLocaleDateString("en-CA");
     for (const week of json.gameWeek ?? []) {
       for (const game of week.games ?? []) {
         starters.push({
-          homeTeam: game.homeTeam.name.default,
-          awayTeam: game.awayTeam.name.default,
+          homeTeam: getNhlTeamName(game.homeTeam),
+          awayTeam: getNhlTeamName(game.awayTeam),
           sport: "icehockey_nhl",
           homeStarter: null,
           awayStarter: null,
