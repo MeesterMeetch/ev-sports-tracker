@@ -1,0 +1,88 @@
+import { logger } from "./logger";
+
+const ODDS_API_BASE = "https://api.the-odds-api.com/v4";
+const API_KEY = process.env.ODDS_API_KEY;
+
+export interface OddsOutcome {
+  name: string;
+  price: number;
+  point?: number;
+}
+
+export interface OddsMarket {
+  key: string;
+  outcomes: OddsOutcome[];
+}
+
+export interface OddsBookmaker {
+  key: string;
+  title: string;
+  last_update: string;
+  markets: OddsMarket[];
+}
+
+export interface OddsGame {
+  id: string;
+  sport_key: string;
+  sport_title: string;
+  commence_time: string;
+  home_team: string;
+  away_team: string;
+  bookmakers: OddsBookmaker[];
+}
+
+export interface OddsSport {
+  key: string;
+  group: string;
+  title: string;
+  description: string;
+  active: boolean;
+  has_outrights: boolean;
+}
+
+async function oddsApiFetch<T>(path: string, params: Record<string, string> = {}): Promise<{ data: T; requestsRemaining: number | null }> {
+  if (!API_KEY) throw new Error("ODDS_API_KEY not set");
+  const url = new URL(`${ODDS_API_BASE}${path}`);
+  url.searchParams.set("apiKey", API_KEY);
+  for (const [k, v] of Object.entries(params)) {
+    if (v) url.searchParams.set(k, v);
+  }
+  const res = await fetch(url.toString());
+  if (!res.ok) {
+    const text = await res.text();
+    logger.error({ status: res.status, text }, "Odds API error");
+    throw new Error(`Odds API error ${res.status}: ${text}`);
+  }
+  const remaining = res.headers.get("x-requests-remaining");
+  const data = (await res.json()) as T;
+  return { data, requestsRemaining: remaining ? parseInt(remaining, 10) : null };
+}
+
+export async function fetchSports(): Promise<{ data: OddsSport[]; requestsRemaining: number | null }> {
+  return oddsApiFetch<OddsSport[]>("/sports");
+}
+
+export async function fetchOdds(sportKey: string, markets = "h2h,spreads,totals"): Promise<{ data: OddsGame[]; requestsRemaining: number | null }> {
+  return oddsApiFetch<OddsGame[]>(`/sports/${sportKey}/odds`, {
+    regions: "us",
+    markets,
+    oddsFormat: "american",
+    dateFormat: "iso",
+    bookmakers: "pinnacle,draftkings,fanduel,betmgm,caesars,pointsbet",
+  });
+}
+
+export async function fetchMultiSportOdds(sportKeys: string[], markets = "h2h,spreads,totals"): Promise<{ games: OddsGame[]; requestsRemaining: number | null }> {
+  const allGames: OddsGame[] = [];
+  let requestsRemaining: number | null = null;
+  for (const key of sportKeys) {
+    try {
+      const result = await fetchOdds(key, markets);
+      allGames.push(...result.data);
+      requestsRemaining = result.requestsRemaining;
+    } catch (err) {
+      logger.warn({ sport: key, err }, "Failed to fetch odds for sport");
+    }
+  }
+  return { games: allGames, requestsRemaining };
+}

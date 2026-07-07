@@ -3,20 +3,25 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: EV Sports Betting Tracker API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: odds
+    description: Live odds and EV analysis
+  - name: bets
+    description: Bet card management
+  - name: analysis
+    description: AI analysis
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +29,527 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /odds/sports:
+    get:
+      operationId: listSports
+      tags: [odds]
+      summary: List available sports
+      responses:
+        "200":
+          description: List of sports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Sport"
+
+  /odds/games:
+    get:
+      operationId: listGames
+      tags: [odds]
+      summary: List today's games with odds and EV calculations
+      parameters:
+        - name: sport
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Sport key filter (e.g. americanfootball_nfl, baseball_mlb)
+        - name: markets
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated markets (h2h, spreads, totals)
+      responses:
+        "200":
+          description: Games with odds and EV data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GameWithOdds"
+
+  /odds/ev-card:
+    get:
+      operationId: getEvCard
+      tags: [odds]
+      summary: Get today's positive EV bet card
+      parameters:
+        - name: sport
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: minEv
+          in: query
+          required: false
+          schema:
+            type: number
+          description: Minimum EV percentage (default 2.0)
+      responses:
+        "200":
+          description: Positive EV bets and near misses
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvCard"
+
+  /odds/near-misses:
+    get:
+      operationId: getNearMisses
+      tags: [odds]
+      summary: Get top near-miss bets for today
+      parameters:
+        - name: sport
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Near-miss bets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NearMiss"
+
+  /bets:
+    get:
+      operationId: listBets
+      tags: [bets]
+      summary: List saved bets (bet tracker)
+      responses:
+        "200":
+          description: List of tracked bets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Bet"
+    post:
+      operationId: createBet
+      tags: [bets]
+      summary: Save a bet to the tracker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BetInput"
+      responses:
+        "201":
+          description: Bet saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bet"
+
+  /bets/{id}:
+    patch:
+      operationId: updateBet
+      tags: [bets]
+      summary: Update bet result (win/loss/push)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BetUpdate"
+      responses:
+        "200":
+          description: Updated bet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bet"
+    delete:
+      operationId: deleteBet
+      tags: [bets]
+      summary: Delete a bet
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /bets/stats:
+    get:
+      operationId: getBetStats
+      tags: [bets]
+      summary: Get bankroll stats and ROI summary
+      responses:
+        "200":
+          description: Stats summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BetStats"
+
+  /analysis/game:
+    post:
+      operationId: analyzeGame
+      tags: [analysis]
+      summary: AI analysis of a specific game using the v4-O framework
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalysisRequest"
+      responses:
+        "200":
+          description: AI analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisResult"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    Sport:
+      type: object
+      required: [key, title, active]
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        active:
+          type: boolean
+        hasOdds:
+          type: boolean
+
+    Outcome:
+      type: object
+      required: [name, price]
+      properties:
+        name:
+          type: string
+        price:
+          type: number
+          description: American odds
+        point:
+          type: ["number", "null"]
+          description: Spread or total line
+
+    Market:
+      type: object
+      required: [key, outcomes]
+      properties:
+        key:
+          type: string
+          description: Market type (h2h, spreads, totals)
+        outcomes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Outcome"
+
+    Bookmaker:
+      type: object
+      required: [key, title, markets]
+      properties:
+        key:
+          type: string
+        title:
+          type: string
+        markets:
+          type: array
+          items:
+            $ref: "#/components/schemas/Market"
+
+    EvBet:
+      type: object
+      required: [gameId, homeTeam, awayTeam, sport, market, selection, bookmaker, americanOdds, noVigProb, estimatedProb, evPercent, kellyFraction, suggestedUnits, commenceTime]
+      properties:
+        gameId:
+          type: string
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        sport:
+          type: string
+        market:
+          type: string
+        selection:
+          type: string
+        point:
+          type: ["number", "null"]
+        bookmaker:
+          type: string
+        americanOdds:
+          type: number
+        noVigProb:
+          type: number
+          description: Sharp no-vig probability (0-1)
+        estimatedProb:
+          type: number
+          description: Our estimated true probability (0-1)
+        evPercent:
+          type: number
+          description: Expected value percentage
+        kellyFraction:
+          type: number
+          description: Quarter-Kelly fraction
+        suggestedUnits:
+          type: number
+        commenceTime:
+          type: string
+        pinnacleOdds:
+          type: ["number", "null"]
+        confidence:
+          type: ["integer", "null"]
+          description: Star rating 1-5
+
+    NearMiss:
+      type: object
+      required: [gameId, homeTeam, awayTeam, sport, market, selection, bookmaker, americanOdds, evPercent, breakEvenOdds, commenceTime]
+      properties:
+        gameId:
+          type: string
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        sport:
+          type: string
+        market:
+          type: string
+        selection:
+          type: string
+        point:
+          type: ["number", "null"]
+        bookmaker:
+          type: string
+        americanOdds:
+          type: number
+        evPercent:
+          type: number
+        breakEvenOdds:
+          type: number
+          description: The American odds price at which this bet becomes +2% EV
+        commenceTime:
+          type: string
+
+    EvCard:
+      type: object
+      required: [date, bets, nearMisses, hasBets, requestsRemaining]
+      properties:
+        date:
+          type: string
+        bets:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvBet"
+        nearMisses:
+          type: array
+          items:
+            $ref: "#/components/schemas/NearMiss"
+        hasBets:
+          type: boolean
+        requestsRemaining:
+          type: ["integer", "null"]
+
+    GameWithOdds:
+      type: object
+      required: [id, homeTeam, awayTeam, sport, commenceTime, bookmakers]
+      properties:
+        id:
+          type: string
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        sport:
+          type: string
+        commenceTime:
+          type: string
+        bookmakers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Bookmaker"
+
+    Bet:
+      type: object
+      required: [id, gameId, homeTeam, awayTeam, sport, market, selection, bookmaker, americanOdds, evPercent, units, status, commenceTime, createdAt]
+      properties:
+        id:
+          type: integer
+        gameId:
+          type: string
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        sport:
+          type: string
+        market:
+          type: string
+        selection:
+          type: string
+        point:
+          type: ["number", "null"]
+        bookmaker:
+          type: string
+        americanOdds:
+          type: number
+        evPercent:
+          type: number
+        units:
+          type: number
+        status:
+          type: string
+          description: pending | won | lost | push
+        pnl:
+          type: ["number", "null"]
+        commenceTime:
+          type: string
+        createdAt:
+          type: string
+        notes:
+          type: ["string", "null"]
+
+    BetInput:
+      type: object
+      required: [gameId, homeTeam, awayTeam, sport, market, selection, bookmaker, americanOdds, evPercent, units, commenceTime]
+      properties:
+        gameId:
+          type: string
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        sport:
+          type: string
+        market:
+          type: string
+        selection:
+          type: string
+        point:
+          type: ["number", "null"]
+        bookmaker:
+          type: string
+        americanOdds:
+          type: number
+        evPercent:
+          type: number
+        units:
+          type: number
+        commenceTime:
+          type: string
+        notes:
+          type: ["string", "null"]
+
+    BetUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          description: pending | won | lost | push
+        pnl:
+          type: ["number", "null"]
+        notes:
+          type: ["string", "null"]
+
+    BetStats:
+      type: object
+      required: [totalBets, wins, losses, pushes, pending, roi, totalUnitsWagered, totalPnl, winRate]
+      properties:
+        totalBets:
+          type: integer
+        wins:
+          type: integer
+        losses:
+          type: integer
+        pushes:
+          type: integer
+        pending:
+          type: integer
+        roi:
+          type: number
+        totalUnitsWagered:
+          type: number
+        totalPnl:
+          type: number
+        winRate:
+          type: number
+        bySport:
+          type: array
+          items:
+            $ref: "#/components/schemas/SportStats"
+
+    SportStats:
+      type: object
+      required: [sport, bets, wins, roi]
+      properties:
+        sport:
+          type: string
+        bets:
+          type: integer
+        wins:
+          type: integer
+        roi:
+          type: number
+
+    AnalysisRequest:
+      type: object
+      required: [gameId, homeTeam, awayTeam, sport]
+      properties:
+        gameId:
+          type: string
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        sport:
+          type: string
+        market:
+          type: ["string", "null"]
+        additionalContext:
+          type: ["string", "null"]
+
+    AnalysisResult:
+      type: object
+      required: [gameId, analysis, recommendation, confidence]
+      properties:
+        gameId:
+          type: string
+        analysis:
+          type: string
+        recommendation:
+          type: string
+        confidence:
+          type: integer
+          description: 1-5 star rating
+        keyFactors:
+          type: array
+          items:
+            type: string
+        risks:
+          type: array
+          items:
+            type: string
