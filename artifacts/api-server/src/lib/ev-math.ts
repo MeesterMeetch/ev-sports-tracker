@@ -36,9 +36,8 @@ export function quarterKelly(estimatedProb: number, americanOdds: number): numbe
 
 export function breakEvenOddsForEV(estimatedProb: number, targetEvPct: number): number {
   const targetEV = targetEvPct / 100;
-  const b = (estimatedProb + targetEV) / (estimatedProb - targetEV * (1 - estimatedProb) / estimatedProb);
-  if (!isFinite(b) || b <= 1) return 0;
-  const decimal = b + 1;
+  const decimal = (1 + targetEV) / estimatedProb;
+  if (!isFinite(decimal) || decimal <= 1) return 0;
   if (decimal >= 2) {
     return Math.round((decimal - 1) * 100);
   } else {
