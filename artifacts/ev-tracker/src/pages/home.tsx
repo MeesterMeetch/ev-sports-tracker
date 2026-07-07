@@ -15,6 +15,8 @@ import type { EvBet, GameStarter } from "@workspace/api-client-react";
 import {
   formatAmericanOdds,
   formatPercent,
+  formatSportKey,
+  formatGameTime,
   getEvColorClass,
   formatUnits,
 } from "@/lib/formatters";
@@ -26,6 +28,7 @@ import { Star, TrendingUp, AlertTriangle, Plus, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const REFRESH_SECONDS = 300;
+const EV_SANITY_THRESHOLD = 30;
 
 function normalize(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
@@ -44,16 +47,34 @@ function findStarter(
       const na = normalize(s.awayTeam);
       const qh = normalize(homeTeam);
       const qa = normalize(awayTeam);
-      return (nh === qh || nh.includes(qh) || qh.includes(nh)) &&
-             (na === qa || na.includes(qa) || qa.includes(na));
+      return (
+        (nh === qh || nh.includes(qh) || qh.includes(nh)) &&
+        (na === qa || na.includes(qa) || qa.includes(na))
+      );
     }) ?? null
   );
 }
 
-function StarterBadge({ starter }: { starter: GameStarter }) {
-  const isGoalie = starter.starterType === "goalie";
+interface BetGroup {
+  best: EvBet;
+  alternates: EvBet[];
+}
 
-  if (isGoalie) {
+function groupBets(bets: EvBet[]): BetGroup[] {
+  const map = new Map<string, EvBet[]>();
+  for (const bet of bets) {
+    const key = `${bet.gameId}|${bet.market}|${bet.selection}`;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(bet);
+  }
+  return Array.from(map.values()).map((group) => {
+    const sorted = [...group].sort((a, b) => b.evPercent - a.evPercent);
+    return { best: sorted[0], alternates: sorted.slice(1) };
+  });
+}
+
+function StarterBadge({ starter }: { starter: GameStarter }) {
+  if (starter.starterType === "goalie") {
     return (
       <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
         <AlertTriangle className="w-3 h-3 shrink-0" />
@@ -61,16 +82,23 @@ function StarterBadge({ starter }: { starter: GameStarter }) {
       </div>
     );
   }
-
   const hasBoth = starter.awayStarter && starter.homeStarter;
   const label = hasBoth
     ? `${starter.awayStarter} vs. ${starter.homeStarter}`
     : starter.homeStarter || starter.awayStarter || "Pitcher TBD";
-
   return (
     <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
       <AlertTriangle className="w-3 h-3 shrink-0" />
       <span>Probable: {label}</span>
+    </div>
+  );
+}
+
+function StaleBadge() {
+  return (
+    <div className="flex items-center gap-1 mt-1 rounded px-2 py-1 bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+      <AlertTriangle className="w-3 h-3 shrink-0" />
+      <span>Verify odds — line may be stale</span>
     </div>
   );
 }
@@ -105,10 +133,7 @@ export default function Home() {
   useEffect(() => {
     const id = setInterval(() => {
       setCountdown((prev) => {
-        if (prev <= 1) {
-          handleRefresh();
-          return REFRESH_SECONDS;
-        }
+        if (prev <= 1) { handleRefresh(); return REFRESH_SECONDS; }
         return prev - 1;
       });
     }, 1000);
@@ -118,10 +143,7 @@ export default function Home() {
   const createBet = useCreateBet({
     mutation: {
       onSuccess: () => {
-        toast({
-          title: "Bet tracked",
-          description: "Added to your tracker.",
-        });
+        toast({ title: "Bet tracked", description: "Added to your tracker." });
         queryClient.invalidateQueries({ queryKey: getListBetsQueryKey() });
         setPendingBet(null);
       },
@@ -131,10 +153,6 @@ export default function Home() {
       },
     },
   });
-
-  const handleTrackClick = (bet: EvBet) => {
-    setPendingBet(bet);
-  };
 
   const handleConfirmSave = (units: number) => {
     if (!pendingBet) return;
@@ -166,6 +184,7 @@ export default function Home() {
     : false;
 
   const activeSports = sports?.filter((s) => s.active) || [];
+  const betGroups = groupBets(evCard?.bets ?? []);
 
   const mins = Math.floor(countdown / 60);
   const secs = countdown % 60;
@@ -207,9 +226,10 @@ export default function Home() {
 
       {isEvLoading ? (
         <div className="text-muted-foreground py-12 text-center animate-pulse">Scanning markets...</div>
-      ) : evCard?.bets && evCard.bets.length > 0 ? (
+      ) : betGroups.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {evCard.bets.map((bet, i) => {
+          {betGroups.map(({ best: bet, alternates }, i) => {
+            const isStale = bet.evPercent > EV_SANITY_THRESHOLD;
             const starter = findStarter(starters, bet.homeTeam, bet.awayTeam, bet.sport);
             const showStarter =
               starter &&
@@ -220,22 +240,26 @@ export default function Home() {
               <Card key={`${bet.gameId}-${bet.selection}-${i}`} className="border-border bg-card/50 flex flex-col">
                 <CardHeader className="pb-2 border-b border-border/50">
                   <div className="flex justify-between items-start">
-                    <div>
-                      <div className="text-xs text-muted-foreground mb-1">
-                        {bet.sport} • {new Date(bet.commenceTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <span className="bg-secondary text-secondary-foreground font-semibold px-1.5 py-0.5 rounded text-[10px] tracking-wide">
+                          {formatSportKey(bet.sport)}
+                        </span>
+                        <span>{formatGameTime(bet.commenceTime)}</span>
                       </div>
                       <CardTitle className="text-base font-semibold">{bet.awayTeam} @ {bet.homeTeam}</CardTitle>
                     </div>
-                    <div className="flex">
+                    <div className="flex shrink-0">
                       {Array.from({ length: bet.confidence || 0 }).map((_, j) => (
                         <Star key={j} className="w-4 h-4 fill-yellow-500 text-yellow-500" />
                       ))}
                     </div>
                   </div>
                   {showStarter && <StarterBadge starter={starter} />}
+                  {isStale && <StaleBadge />}
                 </CardHeader>
                 <CardContent className="pt-4 flex-1 flex flex-col justify-between">
-                  <div className="space-y-3 mb-6">
+                  <div className="space-y-3 mb-4">
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Selection</span>
                       <span className="font-bold text-foreground">
@@ -248,13 +272,27 @@ export default function Home() {
                       <span className="uppercase text-xs tracking-wider">{bet.market}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Bookmaker</span>
-                      <span className="text-foreground">{bet.bookmaker}</span>
+                      <span className="text-muted-foreground">Best book</span>
+                      <span className="text-foreground font-medium">{bet.bookmaker}</span>
                     </div>
                     <div className="flex justify-between items-center bg-secondary/50 p-2 rounded">
                       <span className="text-muted-foreground">Odds</span>
                       <span className="font-bold text-lg">{formatAmericanOdds(bet.americanOdds)}</span>
                     </div>
+
+                    {alternates.length > 0 && (
+                      <div className="text-xs text-muted-foreground border-t border-border/40 pt-2">
+                        <span className="mr-1">Also at:</span>
+                        {alternates.map((alt, j) => (
+                          <span key={j}>
+                            {j > 0 && " · "}
+                            <span className="text-foreground/70">{alt.bookmaker}</span>{" "}
+                            <span className="font-mono">{formatAmericanOdds(alt.americanOdds)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/50">
                       <div className="flex flex-col">
                         <span className="text-xs text-muted-foreground">EV</span>
@@ -270,7 +308,7 @@ export default function Home() {
                   </div>
                   <Button
                     className="w-full"
-                    onClick={() => handleTrackClick(bet)}
+                    onClick={() => setPendingBet(bet)}
                     disabled={createBet.isPending}
                     data-testid={`button-track-${bet.gameId}`}
                   >
@@ -324,7 +362,9 @@ export default function Home() {
                   nearMisses?.slice(0, 5).map((miss, i) => (
                     <tr key={`${miss.gameId}-${i}`} className="border-b border-border hover:bg-secondary/20">
                       <td className="px-4 py-3 font-medium">
-                        <div className="text-xs text-muted-foreground mb-1">{miss.sport}</div>
+                        <span className="inline-block bg-secondary text-secondary-foreground font-semibold px-1.5 py-0.5 rounded text-[10px] tracking-wide mr-1.5">
+                          {formatSportKey(miss.sport)}
+                        </span>
                         {miss.awayTeam} @ {miss.homeTeam}
                       </td>
                       <td className="px-4 py-3">

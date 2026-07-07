@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useListGames, useListSports, getListGamesQueryKey, useAnalyzeGame } from "@workspace/api-client-react";
-import { formatAmericanOdds } from "@/lib/formatters";
+import { formatAmericanOdds, formatSportKey, formatGameTime } from "@/lib/formatters";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -11,44 +11,34 @@ export default function Games() {
   const [sport, setSport] = useState<string>("all");
   const [analyzingGame, setAnalyzingGame] = useState<string | null>(null);
   const [analysisResults, setAnalysisResults] = useState<Record<string, string>>({});
-  
+
   const { toast } = useToast();
   const { data: sports } = useListSports();
-  
+
   const queryParams = sport !== "all" ? { sport } : {};
   const { data: games, isLoading } = useListGames(queryParams, {
-    query: { queryKey: getListGamesQueryKey(queryParams) }
+    query: { queryKey: getListGamesQueryKey(queryParams) },
   });
 
   const analyzeGame = useAnalyzeGame({
     mutation: {
       onSuccess: (data) => {
-        setAnalysisResults(prev => ({
-          ...prev,
-          [data.gameId]: data.analysis
-        }));
+        setAnalysisResults((prev) => ({ ...prev, [data.gameId]: data.analysis }));
         setAnalyzingGame(null);
       },
       onError: () => {
         toast({ title: "Analysis failed", variant: "destructive" });
         setAnalyzingGame(null);
-      }
-    }
+      },
+    },
   });
 
   const handleAnalyze = (gameId: string, homeTeam: string, awayTeam: string, sportKey: string) => {
     setAnalyzingGame(gameId);
-    analyzeGame.mutate({
-      data: {
-        gameId,
-        homeTeam,
-        awayTeam,
-        sport: sportKey
-      }
-    });
+    analyzeGame.mutate({ data: { gameId, homeTeam, awayTeam, sport: sportKey } });
   };
 
-  const activeSports = sports?.filter(s => s.active) || [];
+  const activeSports = sports?.filter((s) => s.active) || [];
 
   return (
     <div className="space-y-6">
@@ -64,7 +54,7 @@ export default function Games() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Sports</SelectItem>
-              {activeSports.map(s => (
+              {activeSports.map((s) => (
                 <SelectItem key={s.key} value={s.key}>{s.title}</SelectItem>
               ))}
             </SelectContent>
@@ -85,15 +75,18 @@ export default function Games() {
               <CardHeader className="bg-secondary/30 pb-4 border-b border-border">
                 <div className="flex justify-between items-start">
                   <div>
-                    <div className="text-xs text-muted-foreground mb-1">
-                      {game.sport} • {new Date(game.commenceTime).toLocaleString()}
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                      <span className="bg-secondary text-secondary-foreground font-semibold px-1.5 py-0.5 rounded text-[10px] tracking-wide">
+                        {formatSportKey(game.sport)}
+                      </span>
+                      <span>{formatGameTime(game.commenceTime)}</span>
                     </div>
                     <CardTitle className="text-lg">
                       {game.awayTeam} @ {game.homeTeam}
                     </CardTitle>
                   </div>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     size="sm"
                     className="bg-background"
                     onClick={() => handleAnalyze(game.id, game.homeTeam, game.awayTeam, game.sport)}
@@ -108,9 +101,9 @@ export default function Games() {
                   </Button>
                 </div>
               </CardHeader>
-              
+
               {analysisResults[game.id] && (
-                <div className="bg-primary/5 border-b border-primary/20 p-4 text-sm font-mono leading-relaxed">
+                <div className="bg-primary/5 border-b border-primary/20 p-4 text-sm leading-relaxed whitespace-pre-wrap">
                   <div className="flex items-center gap-2 text-primary font-bold mb-2">
                     <BrainCircuit className="h-4 w-4" /> Analysis
                   </div>
@@ -130,29 +123,60 @@ export default function Games() {
                       </tr>
                     </thead>
                     <tbody className="font-mono">
-                      {game.bookmakers.map((bookie, bIdx) => (
-                        bookie.markets.map((market, mIdx) => {
-                          const awayOutcome = market.outcomes.find(o => o.name === game.awayTeam);
-                          const homeOutcome = market.outcomes.find(o => o.name === game.homeTeam);
-                          
+                      {game.bookmakers.map((bookie) =>
+                        bookie.markets.map((market) => {
+                          const awayOutcome = market.outcomes.find((o) => o.name === game.awayTeam);
+                          const homeOutcome = market.outcomes.find((o) => o.name === game.homeTeam);
                           if (!awayOutcome || !homeOutcome) return null;
 
+                          const isPinnacle = bookie.key === "pinnacle";
+
                           return (
-                            <tr key={`${bookie.key}-${market.key}`} className="border-b border-border/50 hover:bg-secondary/20">
-                              <td className="px-4 py-2 font-sans">{bookie.title}</td>
+                            <tr
+                              key={`${bookie.key}-${market.key}`}
+                              className={
+                                isPinnacle
+                                  ? "border-b border-border/50 border-l-2 border-l-primary bg-primary/5"
+                                  : "border-b border-border/50 hover:bg-secondary/20"
+                              }
+                            >
+                              <td className="px-4 py-2 font-sans">
+                                {isPinnacle ? (
+                                  <span className="flex items-center gap-1.5">
+                                    {bookie.title}
+                                    <span className="text-[10px] font-bold text-primary tracking-wide bg-primary/15 px-1 rounded">
+                                      SHARP
+                                    </span>
+                                  </span>
+                                ) : (
+                                  bookie.title
+                                )}
+                              </td>
                               <td className="px-4 py-2 uppercase text-xs">{market.key}</td>
                               <td className="px-4 py-2">
-                                {awayOutcome.point != null && <span className="text-muted-foreground mr-2">{awayOutcome.point > 0 ? `+${awayOutcome.point}` : awayOutcome.point}</span>}
-                                {formatAmericanOdds(awayOutcome.price)}
+                                {awayOutcome.point != null && (
+                                  <span className="text-muted-foreground mr-2">
+                                    {awayOutcome.point > 0 ? `+${awayOutcome.point}` : awayOutcome.point}
+                                  </span>
+                                )}
+                                <span className={isPinnacle ? "text-primary font-semibold" : ""}>
+                                  {formatAmericanOdds(awayOutcome.price)}
+                                </span>
                               </td>
                               <td className="px-4 py-2">
-                                {homeOutcome.point != null && <span className="text-muted-foreground mr-2">{homeOutcome.point > 0 ? `+${homeOutcome.point}` : homeOutcome.point}</span>}
-                                {formatAmericanOdds(homeOutcome.price)}
+                                {homeOutcome.point != null && (
+                                  <span className="text-muted-foreground mr-2">
+                                    {homeOutcome.point > 0 ? `+${homeOutcome.point}` : homeOutcome.point}
+                                  </span>
+                                )}
+                                <span className={isPinnacle ? "text-primary font-semibold" : ""}>
+                                  {formatAmericanOdds(homeOutcome.price)}
+                                </span>
                               </td>
                             </tr>
                           );
                         })
-                      ))}
+                      )}
                     </tbody>
                   </table>
                 </div>
