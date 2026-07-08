@@ -563,6 +563,8 @@ components:
           type: boolean
         requestsRemaining:
           type: ["integer", "null"]
+        quotaExhausted:
+          type: boolean
         sharpCoverage:
           $ref: "#/components/schemas/SharpCoverage"
 

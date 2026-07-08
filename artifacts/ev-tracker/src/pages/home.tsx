@@ -148,6 +148,18 @@ function FreshnessBadge({ ageMinutes }: { ageMinutes: number }) {
   );
 }
 
+function QuotaExhaustedBanner() {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+      <div>
+        <span className="font-semibold text-amber-200">Quota reached — results may be incomplete.</span>
+        {" "}One or more sports were skipped because the Odds API request quota ran out mid-scan. Top up your quota or wait for it to reset to see the full market.
+      </div>
+    </div>
+  );
+}
+
 function SharpCoverageBanner({ coverage }: { coverage: SharpCoverage }) {
   const { gamesEvaluated, gamesWithSharpH2H, gamesWithSharpSpreads, gamesWithSharpTotals } = coverage;
   if (gamesEvaluated === 0) return null;
@@ -401,6 +413,9 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Quota exhausted banner */}
+      {evCard?.quotaExhausted && <QuotaExhaustedBanner />}
 
       {/* Sharp coverage banner */}
       {evCard?.sharpCoverage && <SharpCoverageBanner coverage={evCard.sharpCoverage} />}

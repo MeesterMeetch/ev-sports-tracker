@@ -105,6 +105,7 @@ export const GetEvCardResponse = zod.object({
 })),
   "hasBets": zod.boolean(),
   "requestsRemaining": zod.number().nullable(),
+  "quotaExhausted": zod.boolean().optional(),
   "sharpCoverage": zod.object({
   "gamesEvaluated": zod.number(),
   "gamesWithSharpH2H": zod.number(),

@@ -16,5 +16,6 @@ export interface EvCard {
   hasBets: boolean;
   /** @nullable */
   requestsRemaining: number | null;
+  quotaExhausted?: boolean;
   sharpCoverage?: SharpCoverage;
 }
