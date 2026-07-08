@@ -574,6 +574,68 @@ describe("GET /api/odds/ev-card", () => {
     expect(totalsNearMisses).toHaveLength(0);
   });
 
+  it("evaluates totals bets using the nearest sharp line when retail and sharp points differ", async () => {
+    const gameTotalsMismatch = {
+      id: "game-totals-mismatch",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: -110, point: 9.5 },
+                { name: "Under", price: -110, point: 9.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: 110, point: 9 },
+                { name: "Under", price: -130, point: 9 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameTotalsMismatch])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    const totalsBets = [...res.body.bets, ...res.body.nearMisses].filter(
+      (b: { market: string }) => b.market === "totals"
+    );
+
+    expect(totalsBets.length).toBeGreaterThan(0);
+    const overBet = totalsBets.find(
+      (b: { selection: string }) => b.selection === "Over 9"
+    );
+    expect(overBet).toBeDefined();
+    expect(overBet.evPercent).toBeGreaterThan(0);
+    expect(overBet.sharpBook).toBe("LowVig");
+    expect(overBet.point).toBe(9);
+  });
+
   it("evaluates spread bets using the nearest sharp line when retail and sharp points differ", async () => {
     const gameMismatchedPoints = {
       id: "game-spreads-mismatch",
