@@ -31,6 +31,30 @@ const REFRESH_SECONDS = 300;
 const EV_SANITY_THRESHOLD = 30;
 const NEAR_MISS_MIN_EV = 2.0;
 
+type DateFilter = "all" | "today" | "tonight" | "tomorrow";
+
+const DATE_FILTER_LABELS: Record<DateFilter, string> = {
+  all: "All Days",
+  today: "Today",
+  tonight: "Tonight",
+  tomorrow: "Tomorrow",
+};
+
+function localDateStr(isoString: string): string {
+  return new Date(isoString).toLocaleDateString("en-CA");
+}
+
+function matchesDateFilter(commenceTime: string, filter: DateFilter): boolean {
+  if (filter === "all") return true;
+  const gameDate = localDateStr(commenceTime);
+  const today = localDateStr(new Date().toISOString());
+  const tomorrow = localDateStr(new Date(Date.now() + 86_400_000).toISOString());
+  if (filter === "today") return gameDate === today;
+  if (filter === "tonight") return gameDate === today && new Date(commenceTime).getHours() >= 17;
+  if (filter === "tomorrow") return gameDate === tomorrow;
+  return true;
+}
+
 function normalize(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
 }
@@ -177,6 +201,7 @@ function NearMissBar({ evPercent }: { evPercent: number }) {
 
 export default function Home() {
   const [sport, setSport] = useState<string>("all");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [countdown, setCountdown] = useState(REFRESH_SECONDS);
   const [hideStale, setHideStale] = useState(false);
   const [pendingBet, setPendingBet] = useState<EvBet | null>(null);
@@ -266,11 +291,13 @@ export default function Home() {
     : false;
 
   const activeSports = sports?.filter((s) => s.active) || [];
-  const allGroups = groupBets(evCard?.bets ?? []);
+  const dateBets = (evCard?.bets ?? []).filter((b) => matchesDateFilter(b.commenceTime, dateFilter));
+  const allGroups = groupBets(dateBets);
   const staleCount = allGroups.filter(({ best }) => best.evPercent > EV_SANITY_THRESHOLD).length;
   const betGroups = hideStale
     ? allGroups.filter(({ best }) => best.evPercent <= EV_SANITY_THRESHOLD)
     : allGroups;
+  const filteredNearMisses = (nearMisses ?? []).filter((m) => matchesDateFilter(m.commenceTime, dateFilter));
 
   const mins = Math.floor(countdown / 60);
   const secs = countdown % 60;
@@ -280,10 +307,28 @@ export default function Home() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Today's Bet Card</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {dateFilter === "all" ? "All Upcoming Bets" : `${DATE_FILTER_LABELS[dateFilter]}'s Bet Card`}
+          </h1>
           <p className="text-muted-foreground text-sm">Rigorous +EV opportunities</p>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
+          <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5 shrink-0">
+            {(["all", "today", "tonight", "tomorrow"] as DateFilter[]).map((d) => (
+              <button
+                key={d}
+                onClick={() => setDateFilter(d)}
+                className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
+                  dateFilter === d
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {DATE_FILTER_LABELS[d]}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
           {staleCount > 0 && (
             <Button
               variant="outline"
@@ -319,6 +364,7 @@ export default function Home() {
             <RefreshCw className="w-3.5 h-3.5" />
             <span className="font-mono text-xs tabular-nums">{countdownLabel}</span>
           </Button>
+          </div>
         </div>
       </div>
 
@@ -434,13 +480,14 @@ export default function Home() {
             <h3 className="text-lg font-bold mb-2">No +EV Bets Found</h3>
             <p className="text-muted-foreground max-w-md">
               There are currently no bets meeting your minimum EV threshold for{" "}
-              {sport === "all" ? "any sport" : sport}. Check the near-misses below.
+              {sport === "all" ? "any sport" : sport}
+              {dateFilter !== "all" ? ` ${DATE_FILTER_LABELS[dateFilter].toLowerCase()}` : ""}. Check the near-misses below.
             </p>
           </CardContent>
         </Card>
       )}
 
-      {(isNearMissLoading || (nearMisses && nearMisses.length > 0)) && (
+      {(isNearMissLoading || filteredNearMisses.length > 0) && (
         <div className="mt-8">
           <div className="flex items-center gap-2 mb-4">
             <AlertTriangle className="w-5 h-5 text-yellow-500" />
@@ -472,7 +519,7 @@ export default function Home() {
                     ))}
                   </>
                 ) : (
-                  nearMisses?.slice(0, 5).map((miss, i) => (
+                  filteredNearMisses.slice(0, 5).map((miss, i) => (
                     <tr key={`${miss.gameId}-${i}`} className="border-b border-border hover:bg-secondary/20 last:border-0">
                       <td className="px-4 py-3 font-medium">
                         <span className="inline-block bg-secondary text-secondary-foreground font-semibold px-1.5 py-0.5 rounded text-[10px] tracking-wide mr-1.5">
