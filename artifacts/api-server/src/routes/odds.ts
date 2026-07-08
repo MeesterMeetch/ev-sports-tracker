@@ -102,9 +102,27 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
     const nearMisses = [];
     const cutoff = Date.now() - 10 * 60 * 1000;
 
+    let gamesEvaluated = 0;
+    let gamesWithSharpH2H = 0;
+    let gamesWithSharpSpreads = 0;
+    let gamesWithSharpTotals = 0;
+
     for (const game of games) {
       if (new Date(game.commence_time).getTime() < cutoff) continue;
       const sharp = extractSharpLineProbs(game.bookmakers as any);
+
+      gamesEvaluated++;
+      if (sharp.h2hSource.key !== null) gamesWithSharpH2H++;
+      if (sharp.spreadsSource.key !== null) gamesWithSharpSpreads++;
+      if (sharp.totalsSource.key !== null) gamesWithSharpTotals++;
+
+      const gameLabel = `${game.away_team} @ ${game.home_team} (${game.sport_key})`;
+      if (sharp.spreadsSource.key === null) {
+        req.log.warn({ gameId: game.id, game: gameLabel, market: "spreads" }, "no_sharp_reference: spreads market will be skipped");
+      }
+      if (sharp.totalsSource.key === null) {
+        req.log.warn({ gameId: game.id, game: gameLabel, market: "totals" }, "no_sharp_reference: totals market will be skipped");
+      }
 
       for (const bookie of game.bookmakers) {
         for (const market of bookie.markets) {
@@ -269,6 +287,12 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
       nearMisses: nearMisses.slice(0, 10),
       hasBets: evBets.length > 0,
       requestsRemaining,
+      sharpCoverage: {
+        gamesEvaluated,
+        gamesWithSharpH2H,
+        gamesWithSharpSpreads,
+        gamesWithSharpTotals,
+      },
     });
   } catch (err) {
     req.log.error({ err }, "Failed to compute EV card");
