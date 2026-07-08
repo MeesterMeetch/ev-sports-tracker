@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { SaveBetDialog } from "@/components/save-bet-dialog";
-import { Star, TrendingUp, AlertTriangle, Plus, RefreshCw, EyeOff, Eye, WifiOff, Mail, Send } from "lucide-react";
+import { Star, TrendingUp, AlertTriangle, Check, Plus, RefreshCw, EyeOff, Eye, WifiOff, Mail, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const REFRESH_SECONDS = 300;
@@ -88,6 +88,18 @@ function groupBets(bets: EvBet[]): BetGroup[] {
 
 function StarterBadge({ starter }: { starter: GameStarter }) {
   if (starter.starterType === "goalie") {
+    if (starter.confirmed && (starter.homeStarter || starter.awayStarter)) {
+      const hasBoth = starter.awayStarter && starter.homeStarter;
+      const label = hasBoth
+        ? `${starter.awayStarter} vs. ${starter.homeStarter}`
+        : starter.homeStarter || starter.awayStarter || "";
+      return (
+        <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-green-500/10 border border-green-500/30 text-green-400 text-xs">
+          <Check className="w-3 h-3 shrink-0" />
+          <span>Starting goalies: {label}</span>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
         <AlertTriangle className="w-3 h-3 shrink-0" />

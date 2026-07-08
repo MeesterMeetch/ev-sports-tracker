@@ -74,6 +74,34 @@ function getNhlTeamName(team: NhlTeam): string {
   return team.abbrev ?? "Unknown";
 }
 
+interface NhlBoxscoreGoalies {
+  homeStarter: string | null;
+  awayStarter: string | null;
+  confirmed: boolean;
+}
+
+async function fetchNhlBoxscore(gameId: number): Promise<NhlBoxscoreGoalies | null> {
+  const url = `https://api-web.nhle.com/v1/gamecenter/${gameId}/boxscore`;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      playerByGameStats?: {
+        homeTeam?: { goalies?: Array<{ name?: { default?: string }; starter?: boolean }> };
+        awayTeam?: { goalies?: Array<{ name?: { default?: string }; starter?: boolean }> };
+      };
+    };
+    const homeGoalies = json.playerByGameStats?.homeTeam?.goalies ?? [];
+    const awayGoalies = json.playerByGameStats?.awayTeam?.goalies ?? [];
+    const homeStarter = homeGoalies.find((g) => g.starter)?.name?.default ?? null;
+    const awayStarter = awayGoalies.find((g) => g.starter)?.name?.default ?? null;
+    const confirmed = homeStarter !== null || awayStarter !== null;
+    return { homeStarter, awayStarter, confirmed };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchNhlGames(): Promise<GameStarter[]> {
   const url = "https://api-web.nhle.com/v1/schedule/now";
   try {
@@ -82,27 +110,38 @@ async function fetchNhlGames(): Promise<GameStarter[]> {
     const json = (await res.json()) as {
       gameWeek: Array<{
         games: Array<{
+          id: number;
           awayTeam: NhlTeam;
           homeTeam: NhlTeam;
         }>;
       }>;
     };
 
-    const starters: GameStarter[] = [];
+    const games: Array<{ id: number; homeTeam: string; awayTeam: string }> = [];
     for (const week of json.gameWeek ?? []) {
       for (const game of week.games ?? []) {
-        starters.push({
+        games.push({
+          id: game.id,
           homeTeam: getNhlTeamName(game.homeTeam),
           awayTeam: getNhlTeamName(game.awayTeam),
-          sport: "icehockey_nhl",
-          homeStarter: null,
-          awayStarter: null,
-          starterType: "goalie",
-          confirmed: false,
         });
       }
     }
-    return starters;
+
+    const boxscores = await Promise.all(games.map((g) => fetchNhlBoxscore(g.id)));
+
+    return games.map((game, i) => {
+      const bs = boxscores[i];
+      return {
+        homeTeam: game.homeTeam,
+        awayTeam: game.awayTeam,
+        sport: "icehockey_nhl",
+        homeStarter: bs?.homeStarter ?? null,
+        awayStarter: bs?.awayStarter ?? null,
+        starterType: "goalie",
+        confirmed: bs?.confirmed ?? false,
+      };
+    });
   } catch (err) {
     logger.warn({ err }, "Failed to fetch NHL schedule");
     return [];
