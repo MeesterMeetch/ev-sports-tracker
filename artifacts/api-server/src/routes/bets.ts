@@ -8,6 +8,7 @@ import {
   UpdateBetParams,
   DeleteBetParams,
 } from "@workspace/api-zod";
+import { americanToImpliedProb } from "../lib/ev-math";
 
 const router: IRouter = Router();
 
@@ -29,6 +30,8 @@ function formatBet(b: typeof betsTable.$inferSelect) {
     pnl: b.pnl != null ? parseFloat(b.pnl) : null,
     commenceTime: b.commenceTime,
     notes: b.notes ?? null,
+    closingOdds: b.closingOdds ?? null,
+    clvPercent: b.clvPercent != null ? parseFloat(b.clvPercent) : null,
     createdAt: b.createdAt.toISOString(),
   };
 }
@@ -87,6 +90,16 @@ router.patch("/bets/:id", async (req, res): Promise<void> => {
   if (d.status !== undefined) updateData.status = d.status;
   if (d.notes !== undefined) updateData.notes = d.notes;
   if (d.pnl !== undefined) updateData.pnl = d.pnl != null ? String(d.pnl) : null;
+
+  if (d.closingOdds != null) {
+    updateData.closingOdds = d.closingOdds;
+    const [existing] = await db.select().from(betsTable).where(eq(betsTable.id, params.data.id)).limit(1);
+    if (existing) {
+      const yourImplied = americanToImpliedProb(parseFloat(existing.americanOdds));
+      const closingImplied = americanToImpliedProb(d.closingOdds);
+      updateData.clvPercent = String(Math.round((closingImplied - yourImplied) * 10000) / 100);
+    }
+  }
 
   const [bet] = await db
     .update(betsTable)

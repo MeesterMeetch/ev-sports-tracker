@@ -27,4 +27,8 @@ export interface Bet {
   createdAt: string;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  closingOdds?: number | null;
+  /** @nullable */
+  clvPercent?: number | null;
 }

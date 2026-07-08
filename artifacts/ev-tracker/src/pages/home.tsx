@@ -112,6 +112,16 @@ function StaleBadge() {
   );
 }
 
+function FreshnessBadge({ ageMinutes }: { ageMinutes: number }) {
+  const hours = Math.floor(ageMinutes / 60);
+  const label = hours >= 1 ? `${hours}h old` : `${ageMinutes}m old`;
+  return (
+    <div className="flex items-center gap-1 mt-1 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
+      <AlertTriangle className="w-3 h-3 shrink-0" /><span>Line {label} — re-verify before betting</span>
+    </div>
+  );
+}
+
 function SkeletonCard() {
   return (
     <div className="rounded-lg border border-border bg-card/50 flex flex-col animate-pulse">
@@ -349,6 +359,7 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {betGroups.map(({ best: bet, alternates }, i) => {
             const isStale = bet.evPercent > EV_SANITY_THRESHOLD;
+            const isOldLine = (bet.lineAgeMinutes ?? 0) > 120;
             const starter = findStarter(starters, bet.homeTeam, bet.awayTeam, bet.sport);
             const showStarter = starter && (bet.sport === "baseball_mlb" || bet.sport === "icehockey_nhl") && bet.market === "h2h";
 
@@ -370,6 +381,7 @@ export default function Home() {
                   </div>
                   {showStarter && <StarterBadge starter={starter}/>}
                   {isStale && <StaleBadge/>}
+                  {!isStale && isOldLine && <FreshnessBadge ageMinutes={bet.lineAgeMinutes!}/>}
                 </CardHeader>
                 <CardContent className="pt-4 flex-1 flex flex-col justify-between">
                   <div className="space-y-3 mb-4">
@@ -448,7 +460,7 @@ export default function Home() {
                   <th className="px-4 py-3">Selection</th>
                   <th className="px-4 py-3">Bookmaker</th>
                   <th className="px-4 py-3">Current</th>
-                  <th className="px-4 py-3 text-yellow-500">Target</th>
+                  <th className="px-4 py-3 text-yellow-500">Need to Qualify</th>
                   <th className="px-4 py-3">Proximity</th>
                 </tr>
               </thead>
@@ -469,7 +481,10 @@ export default function Home() {
                       <td className="px-4 py-3">{miss.selection}{" "}{miss.point != null && (miss.point > 0 ? `+${miss.point}` : miss.point)}<div className="text-xs text-muted-foreground uppercase">{miss.market}</div></td>
                       <td className="px-4 py-3">{miss.bookmaker}</td>
                       <td className="px-4 py-3 font-mono">{formatAmericanOdds(miss.americanOdds)}</td>
-                      <td className="px-4 py-3 font-mono text-yellow-500 font-bold">{formatAmericanOdds(miss.breakEvenOdds)}</td>
+                      <td className="px-4 py-3 text-yellow-500">
+                        <span className="font-mono font-bold">{formatAmericanOdds(miss.breakEvenOdds)}</span>
+                        <span className="text-xs text-muted-foreground ml-1">or better</span>
+                      </td>
                       <td className="px-4 py-3"><NearMissBar evPercent={miss.evPercent}/></td>
                     </tr>
                   ))

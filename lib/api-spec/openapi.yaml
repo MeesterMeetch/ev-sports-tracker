@@ -498,6 +498,8 @@ components:
           type: ["number", "null"]
         confidence:
           type: ["integer", "null"]
+        lineAgeMinutes:
+          type: ["integer", "null"]
 
     NearMiss:
       type: object
@@ -604,6 +606,10 @@ components:
           type: string
         notes:
           type: ["string", "null"]
+        closingOdds:
+          type: ["integer", "null"]
+        clvPercent:
+          type: ["number", "null"]
 
     BetInput:
       type: object
@@ -645,6 +651,8 @@ components:
           type: ["number", "null"]
         notes:
           type: ["string", "null"]
+        closingOdds:
+          type: ["integer", "null"]
 
     BetStats:
       type: object

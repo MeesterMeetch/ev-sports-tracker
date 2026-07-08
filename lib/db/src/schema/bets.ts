@@ -1,4 +1,5 @@
 import { pgTable, serial, text, numeric, integer, timestamp } from "drizzle-orm/pg-core";
+
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -19,6 +20,8 @@ export const betsTable = pgTable("bets", {
   pnl: numeric("pnl"),
   commenceTime: text("commence_time").notNull(),
   notes: text("notes"),
+  closingOdds: integer("closing_odds"),
+  clvPercent: numeric("clv_percent"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

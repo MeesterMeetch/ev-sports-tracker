@@ -12,4 +12,6 @@ export interface BetUpdate {
   pnl?: number | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  closingOdds?: number | null;
 }

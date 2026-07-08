@@ -68,6 +68,8 @@ export interface EvBet {
   pinnacleOdds?: number | null;
   /** @nullable */
   confidence?: number | null;
+  /** @nullable */
+  lineAgeMinutes?: number | null;
 }
 
 export interface NearMiss {
@@ -125,6 +127,10 @@ export interface Bet {
   createdAt: string;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  closingOdds?: number | null;
+  /** @nullable */
+  clvPercent?: number | null;
 }
 
 export interface BetInput {
@@ -151,6 +157,8 @@ export interface BetUpdate {
   pnl?: number | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  closingOdds?: number | null;
 }
 
 export interface SportStats {

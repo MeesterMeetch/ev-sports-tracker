@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useListBets,
@@ -61,11 +62,25 @@ export default function Tracker() {
     },
   });
 
+  const [logClvId, setLogClvId] = useState<number | null>(null);
+  const [closingInput, setClosingInput] = useState("");
+
   const handleStatusUpdate = (id: number, status: string, units: number, odds: number) => {
     let pnl = 0;
     if (status === "won") pnl = odds > 0 ? units * (odds / 100) : units / (Math.abs(odds) / 100);
     else if (status === "lost") pnl = -units;
     updateBet.mutate({ id, data: { status, pnl } });
+  };
+
+  const handleLogClv = (id: number) => {
+    const odds = parseInt(closingInput, 10);
+    if (isNaN(odds) || (Math.abs(odds) < 100)) {
+      toast({ title: "Enter valid American odds (e.g. -110 or +150)", variant: "destructive" });
+      return;
+    }
+    updateBet.mutate({ id, data: { closingOdds: odds } }, {
+      onSuccess: () => { setLogClvId(null); setClosingInput(""); },
+    });
   };
 
   const hasBySport = stats?.bySport && stats.bySport.length > 0;
@@ -154,6 +169,7 @@ export default function Tracker() {
                 <th className="px-4 py-3 text-right">Units</th>
                 <th className="px-4 py-3 text-center">Status</th>
                 <th className="px-4 py-3 text-right">PnL</th>
+                <th className="px-4 py-3 text-right" title="Closing Line Value — positive means you beat the market">CLV</th>
                 <th className="px-4 py-3 text-center">Actions</th>
               </tr>
             </thead>
@@ -189,6 +205,33 @@ export default function Tracker() {
                     </td>
                     <td className={`px-4 py-3 text-right font-mono ${getPnlColorClass(bet.pnl)}`}>
                       {bet.pnl != null ? formatUnits(bet.pnl) : "-"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {bet.status === "pending" ? (
+                        <span className="text-muted-foreground/40">—</span>
+                      ) : bet.clvPercent != null ? (
+                        <span className={`font-mono text-xs font-bold ${getPnlColorClass(bet.clvPercent)}`}>
+                          {bet.clvPercent >= 0 ? "+" : ""}{bet.clvPercent.toFixed(1)}%
+                        </span>
+                      ) : logClvId === bet.id ? (
+                        <div className="flex items-center gap-1 justify-end">
+                          <input
+                            type="text"
+                            placeholder="-110"
+                            value={closingInput}
+                            onChange={e => setClosingInput(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") handleLogClv(bet.id);
+                              if (e.key === "Escape") { setLogClvId(null); setClosingInput(""); }
+                            }}
+                            className="w-16 text-xs bg-secondary border border-border rounded px-1.5 py-0.5 font-mono text-center focus:outline-none focus:ring-1 focus:ring-primary"
+                            autoFocus
+                          />
+                          <button onClick={() => handleLogClv(bet.id)} className="text-xs text-primary hover:text-primary/80 font-bold">✓</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setLogClvId(bet.id); setClosingInput(""); }} className="text-xs text-muted-foreground/50 hover:text-muted-foreground underline-offset-2 hover:underline">log</button>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

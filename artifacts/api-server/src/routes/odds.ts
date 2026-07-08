@@ -141,6 +141,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                 commenceTime: game.commence_time,
                 pinnacleOdds: pinOdds,
                 confidence: Math.min(5, Math.max(1, Math.round(evPct / 1.5))) as number | null,
+                lineAgeMinutes: Math.floor((Date.now() - new Date(bookie.last_update).getTime()) / 60000),
               };
 
               if (evPct >= minEv) {
@@ -188,6 +189,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                 commenceTime: game.commence_time,
                 pinnacleOdds: pinEntry.odds,
                 confidence: Math.min(5, Math.max(1, Math.round(evPct / 1.5))) as number | null,
+                lineAgeMinutes: Math.floor((Date.now() - new Date(bookie.last_update).getTime()) / 60000),
               };
 
               if (evPct >= minEv) {
@@ -235,6 +237,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                 commenceTime: game.commence_time,
                 pinnacleOdds: pinEntry.odds,
                 confidence: Math.min(5, Math.max(1, Math.round(evPct / 1.5))) as number | null,
+                lineAgeMinutes: Math.floor((Date.now() - new Date(bookie.last_update).getTime()) / 60000),
               };
 
               if (evPct >= minEv) {

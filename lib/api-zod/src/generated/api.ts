@@ -85,7 +85,8 @@ export const GetEvCardResponse = zod.object({
   "suggestedUnits": zod.number(),
   "commenceTime": zod.string(),
   "pinnacleOdds": zod.number().nullish(),
-  "confidence": zod.number().nullish()
+  "confidence": zod.number().nullish(),
+  "lineAgeMinutes": zod.number().nullish()
 })),
   "nearMisses": zod.array(zod.object({
   "gameId": zod.string(),
@@ -165,7 +166,9 @@ export const ListBetsResponseItem = zod.object({
   "pnl": zod.number().nullish(),
   "commenceTime": zod.string(),
   "createdAt": zod.string(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "closingOdds": zod.number().nullish(),
+  "clvPercent": zod.number().nullish()
 })
 export const ListBetsResponse = zod.array(ListBetsResponseItem)
 
@@ -206,7 +209,9 @@ export const CreateBetResponse = zod.object({
   "pnl": zod.number().nullish(),
   "commenceTime": zod.string(),
   "createdAt": zod.string(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "closingOdds": zod.number().nullish(),
+  "clvPercent": zod.number().nullish()
 })
 
 
@@ -220,7 +225,8 @@ export const UpdateBetParams = zod.object({
 export const UpdateBetBody = zod.object({
   "status": zod.string().optional(),
   "pnl": zod.number().nullish(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "closingOdds": zod.number().nullish()
 })
 
 export const UpdateBetResponse = zod.object({
@@ -240,7 +246,9 @@ export const UpdateBetResponse = zod.object({
   "pnl": zod.number().nullish(),
   "commenceTime": zod.string(),
   "createdAt": zod.string(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "closingOdds": zod.number().nullish(),
+  "clvPercent": zod.number().nullish()
 })
 
 

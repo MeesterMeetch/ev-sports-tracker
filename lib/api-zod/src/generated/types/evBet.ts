@@ -27,4 +27,6 @@ export interface EvBet {
   pinnacleOdds?: number | null;
   /** @nullable */
   confidence?: number | null;
+  /** @nullable */
+  lineAgeMinutes?: number | null;
 }

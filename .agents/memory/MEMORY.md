@@ -1,0 +1,1 @@
+- [EV Tracker architecture](ev-tracker-arch.md) — betting platform: React+Vite frontend at /, Express API at /api, Drizzle+Postgres, Orval codegen from OpenAPI spec.
