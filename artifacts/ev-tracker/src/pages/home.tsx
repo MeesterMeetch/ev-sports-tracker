@@ -171,7 +171,7 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
         <WifiOff className="w-12 h-12 text-muted-foreground mb-4" />
         <h3 className="text-lg font-bold mb-1">Couldn't reach the market feed</h3>
         <p className="text-muted-foreground text-sm max-w-sm mb-6">
-          Check that your Odds API key is valid and that the server is running.
+          The Odds API returned an error — your quota may be exhausted or the key is invalid. Check usage at the-odds-api.com.
         </p>
         <Button variant="outline" onClick={onRetry}>
           <RefreshCw className="w-4 h-4 mr-2" />
