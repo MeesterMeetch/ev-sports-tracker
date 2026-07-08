@@ -7,7 +7,7 @@ import {
   quarterKelly,
   deVig2Way,
   americanToImpliedProb,
-  extractPinnacleProbs,
+  extractSharpLineProbs,
 } from "../lib/ev-math";
 import { logger } from "../lib/logger";
 
@@ -50,10 +50,8 @@ async function getTopEvBets(limit = 10): Promise<DigestBet[]> {
 
   for (const game of games) {
     if (new Date(game.commence_time).getTime() < cutoff) continue;
-    const pinnacle = extractPinnacleProbs(game.bookmakers as Parameters<typeof extractPinnacleProbs>[0]);
-
+    const sharp = extractSharpLineProbs(game.bookmakers as Parameters<typeof extractSharpLineProbs>[0]);
     for (const bookie of game.bookmakers) {
-      if (bookie.key === "pinnacle") continue;
       for (const market of bookie.markets) {
         const outcomes = market.outcomes;
         if (outcomes.length !== 2) continue;
@@ -62,9 +60,12 @@ async function getTopEvBets(limit = 10): Promise<DigestBet[]> {
           let noVigProb: number | undefined;
 
           if (market.key === "h2h") {
-            noVigProb = pinnacle.h2h.get(outcome.name);
+            if (bookie.key === sharp.h2hSource.key) continue;
+            noVigProb = sharp.h2h.get(outcome.name);
           } else if (market.key === "spreads" || market.key === "totals") {
-            const store = market.key === "spreads" ? pinnacle.spreads : pinnacle.totals;
+            const srcKey = market.key === "spreads" ? sharp.spreadsSource.key : sharp.totalsSource.key;
+            if (bookie.key === srcKey) continue;
+            const store = market.key === "spreads" ? sharp.spreads : sharp.totals;
             const pinEntry = store.get(`${outcome.name}_${outcome.point}`);
             const other = outcomes.find((o) => o.name !== outcome.name);
             if (!pinEntry || !other) continue;

@@ -393,6 +393,12 @@ export default function Home() {
                       <span className="text-muted-foreground">Best book</span>
                       <span className="text-foreground font-medium">{bet.bookmaker}</span>
                     </div>
+                    {bet.sharpBook && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">Sharp ref</span>
+                        <span className="text-foreground/70 text-sm">{bet.sharpBook}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center bg-secondary/50 p-2 rounded">
                       <span className="text-muted-foreground">Odds</span>
                       <span className="font-bold text-lg">{formatAmericanOdds(bet.americanOdds)}</span>

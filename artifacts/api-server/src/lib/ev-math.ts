@@ -45,34 +45,123 @@ export function breakEvenOddsForEV(estimatedProb: number, targetEvPct: number): 
   }
 }
 
-export interface PinnacleLines {
+export interface MarketSource {
+  key: string | null;
+  label: string;
+}
+
+export interface SharpLines {
   h2h: Map<string, number>;
   spreads: Map<string, { odds: number; point: number }>;
   totals: Map<string, { odds: number; point: number }>;
+  h2hSource: MarketSource;
+  spreadsSource: MarketSource;
+  totalsSource: MarketSource;
 }
 
-export function extractPinnacleProbs(bookmakers: Array<{ key: string; markets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point?: number }> }> }>): PinnacleLines {
-  const pinnacle = bookmakers.find((b) => b.key === "pinnacle");
-  const result: PinnacleLines = { h2h: new Map(), spreads: new Map(), totals: new Map() };
-  if (!pinnacle) return result;
+type Bookmaker = { key: string; markets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point?: number }> }> };
 
-  for (const market of pinnacle.markets) {
-    if (market.key === "h2h" && market.outcomes.length === 2) {
-      const [o1, o2] = market.outcomes;
-      const p1 = americanToImpliedProb(o1.price);
-      const p2 = americanToImpliedProb(o2.price);
-      const { p1: nv1, p2: nv2 } = deVig2Way(p1, p2);
-      result.h2h.set(o1.name, nv1);
-      result.h2h.set(o2.name, nv2);
-    } else if (market.key === "spreads") {
-      for (const o of market.outcomes) {
-        result.spreads.set(`${o.name}_${o.point}`, { odds: o.price, point: o.point ?? 0 });
-      }
-    } else if (market.key === "totals") {
-      for (const o of market.outcomes) {
-        result.totals.set(`${o.name}_${o.point}`, { odds: o.price, point: o.point ?? 0 });
-      }
+const SHARP_BOOKS: Array<{ key: string; label: string }> = [
+  { key: "lowvig", label: "LowVig" },
+  { key: "betonlineag", label: "BetOnline" },
+];
+
+function extractH2HFromBook(book: Bookmaker): Map<string, number> | null {
+  const market = book.markets.find((m) => m.key === "h2h");
+  if (!market || market.outcomes.length !== 2) return null;
+  const [o1, o2] = market.outcomes;
+  const p1 = americanToImpliedProb(o1.price);
+  const p2 = americanToImpliedProb(o2.price);
+  const { p1: nv1, p2: nv2 } = deVig2Way(p1, p2);
+  const result = new Map<string, number>();
+  result.set(o1.name, nv1);
+  result.set(o2.name, nv2);
+  return result;
+}
+
+function extractSpreadOrTotalFromBook(book: Bookmaker, marketKey: "spreads" | "totals"): Map<string, { odds: number; point: number }> | null {
+  const market = book.markets.find((m) => m.key === marketKey);
+  if (!market || market.outcomes.length === 0) return null;
+  const result = new Map<string, { odds: number; point: number }>();
+  for (const o of market.outcomes) {
+    result.set(`${o.name}_${o.point}`, { odds: o.price, point: o.point ?? 0 });
+  }
+  return result.size > 0 ? result : null;
+}
+
+function buildConsensusH2H(bookmakers: Bookmaker[]): Map<string, number> {
+  const sums = new Map<string, number>();
+  const counts = new Map<string, number>();
+  for (const book of bookmakers) {
+    const h2hMarket = book.markets.find((m) => m.key === "h2h");
+    if (!h2hMarket || h2hMarket.outcomes.length !== 2) continue;
+    const [o1, o2] = h2hMarket.outcomes;
+    const p1 = americanToImpliedProb(o1.price);
+    const p2 = americanToImpliedProb(o2.price);
+    sums.set(o1.name, (sums.get(o1.name) ?? 0) + p1);
+    sums.set(o2.name, (sums.get(o2.name) ?? 0) + p2);
+    counts.set(o1.name, (counts.get(o1.name) ?? 0) + 1);
+    counts.set(o2.name, (counts.get(o2.name) ?? 0) + 1);
+  }
+  const avgProbs = new Map<string, number>();
+  for (const [name, sum] of sums) {
+    const count = counts.get(name) ?? 1;
+    avgProbs.set(name, sum / count);
+  }
+  const names = Array.from(avgProbs.keys());
+  if (names.length === 2) {
+    const p1 = avgProbs.get(names[0])!;
+    const p2 = avgProbs.get(names[1])!;
+    const { p1: nv1, p2: nv2 } = deVig2Way(p1, p2);
+    avgProbs.set(names[0], nv1);
+    avgProbs.set(names[1], nv2);
+  }
+  return avgProbs;
+}
+
+export function extractSharpLineProbs(bookmakers: Bookmaker[]): SharpLines {
+  let h2h = new Map<string, number>();
+  let h2hSource: MarketSource = { key: null, label: "Consensus" };
+
+  for (const { key, label } of SHARP_BOOKS) {
+    const book = bookmakers.find((b) => b.key === key);
+    if (!book) continue;
+    const lines = extractH2HFromBook(book);
+    if (lines && lines.size > 0) {
+      h2h = lines;
+      h2hSource = { key, label };
+      break;
     }
   }
-  return result;
+  if (h2hSource.key === null) {
+    h2h = buildConsensusH2H(bookmakers);
+  }
+
+  let spreads = new Map<string, { odds: number; point: number }>();
+  let spreadsSource: MarketSource = { key: null, label: "" };
+  for (const { key, label } of SHARP_BOOKS) {
+    const book = bookmakers.find((b) => b.key === key);
+    if (!book) continue;
+    const lines = extractSpreadOrTotalFromBook(book, "spreads");
+    if (lines) {
+      spreads = lines;
+      spreadsSource = { key, label };
+      break;
+    }
+  }
+
+  let totals = new Map<string, { odds: number; point: number }>();
+  let totalsSource: MarketSource = { key: null, label: "" };
+  for (const { key, label } of SHARP_BOOKS) {
+    const book = bookmakers.find((b) => b.key === key);
+    if (!book) continue;
+    const lines = extractSpreadOrTotalFromBook(book, "totals");
+    if (lines) {
+      totals = lines;
+      totalsSource = { key, label };
+      break;
+    }
+  }
+
+  return { h2h, spreads, totals, h2hSource, spreadsSource, totalsSource };
 }

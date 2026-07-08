@@ -494,8 +494,10 @@ components:
           type: number
         commenceTime:
           type: string
-        pinnacleOdds:
+        sharpOdds:
           type: ["number", "null"]
+        sharpBook:
+          type: ["string", "null"]
         confidence:
           type: ["integer", "null"]
         lineAgeMinutes:

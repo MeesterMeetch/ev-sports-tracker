@@ -84,7 +84,8 @@ export const GetEvCardResponse = zod.object({
   "kellyFraction": zod.number(),
   "suggestedUnits": zod.number(),
   "commenceTime": zod.string(),
-  "pinnacleOdds": zod.number().nullish(),
+  "sharpOdds": zod.number().nullish(),
+  "sharpBook": zod.string().nullish(),
   "confidence": zod.number().nullish(),
   "lineAgeMinutes": zod.number().nullish()
 })),

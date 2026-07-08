@@ -8,7 +8,7 @@ import {
   calcEVPercent,
   quarterKelly,
   breakEvenOddsForEV,
-  extractPinnacleProbs,
+  extractSharpLineProbs,
 } from "../lib/ev-math";
 import { logger } from "../lib/logger";
 
@@ -94,7 +94,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
   try {
     const sportsToScan = sport
       ? [sport]
-      : ["americanfootball_nfl", "baseball_mlb", "basketball_nba", "icehockey_nhl", "americanfootball_ncaaf", "basketball_ncaab"];
+      : ["americanfootball_nfl", "baseball_mlb", "basketball_nba", "icehockey_nhl", "americanfootball_ncaaf", "basketball_ncaab", "basketball_wnba", "golf_pga_championship"];
 
     const { games, requestsRemaining } = await fetchMultiSportOdds(sportsToScan, "h2h,spreads,totals");
 
@@ -104,22 +104,23 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
 
     for (const game of games) {
       if (new Date(game.commence_time).getTime() < cutoff) continue;
-      const pinnacle = extractPinnacleProbs(game.bookmakers as any);
+      const sharp = extractSharpLineProbs(game.bookmakers as any);
 
       for (const bookie of game.bookmakers) {
-        if (bookie.key === "pinnacle") continue;
-
         for (const market of bookie.markets) {
           const outcomes = market.outcomes;
 
           if (market.key === "h2h" && outcomes.length === 2) {
+            if (bookie.key === sharp.h2hSource.key) continue;
             for (const outcome of outcomes) {
-              const noVigProb = pinnacle.h2h.get(outcome.name);
+              const noVigProb = sharp.h2h.get(outcome.name);
               if (!noVigProb) continue;
 
               const evPct = calcEVPercent(noVigProb, outcome.price);
-              const pinOdds = game.bookmakers
-                .find((b) => b.key === "pinnacle")
+              const refBook = sharp.h2hSource.key
+                ? game.bookmakers.find((b) => b.key === sharp.h2hSource.key)
+                : null;
+              const sharpOdds = refBook
                 ?.markets.find((m) => m.key === "h2h")
                 ?.outcomes.find((o) => o.name === outcome.name)?.price ?? null;
 
@@ -139,7 +140,8 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                 kellyFraction: quarterKelly(noVigProb, outcome.price),
                 suggestedUnits: quarterKelly(noVigProb, outcome.price),
                 commenceTime: game.commence_time,
-                pinnacleOdds: pinOdds,
+                sharpOdds,
+                sharpBook: sharp.h2hSource.label,
                 confidence: Math.min(5, Math.max(1, Math.round(evPct / 1.5))) as number | null,
                 lineAgeMinutes: Math.floor((Date.now() - new Date(bookie.last_update).getTime()) / 60000),
               };
@@ -154,20 +156,21 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
               }
             }
           } else if (market.key === "spreads" && outcomes.length === 2) {
+            if (bookie.key === sharp.spreadsSource.key) continue;
             for (const outcome of outcomes) {
               const key = `${outcome.name}_${outcome.point}`;
-              const pinEntry = pinnacle.spreads.get(key);
-              if (!pinEntry) continue;
+              const sharpEntry = sharp.spreads.get(key);
+              if (!sharpEntry) continue;
 
-              const pinOtherOdds = outcomes.find((o) => o.name !== outcome.name);
-              if (!pinOtherOdds) continue;
+              const sharpOtherOdds = outcomes.find((o) => o.name !== outcome.name);
+              if (!sharpOtherOdds) continue;
 
-              const pinKey2 = `${pinOtherOdds.name}_${pinOtherOdds.point}`;
-              const pinEntry2 = pinnacle.spreads.get(pinKey2);
-              if (!pinEntry2) continue;
+              const sharpKey2 = `${sharpOtherOdds.name}_${sharpOtherOdds.point}`;
+              const sharpEntry2 = sharp.spreads.get(sharpKey2);
+              if (!sharpEntry2) continue;
 
-              const p1 = americanToImpliedProb(pinEntry.odds);
-              const p2 = americanToImpliedProb(pinEntry2.odds);
+              const p1 = americanToImpliedProb(sharpEntry.odds);
+              const p2 = americanToImpliedProb(sharpEntry2.odds);
               const { p1: nv } = deVig2Way(p1, p2);
 
               const evPct = calcEVPercent(nv, outcome.price);
@@ -187,7 +190,8 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                 kellyFraction: quarterKelly(nv, outcome.price),
                 suggestedUnits: quarterKelly(nv, outcome.price),
                 commenceTime: game.commence_time,
-                pinnacleOdds: pinEntry.odds,
+                sharpOdds: sharpEntry.odds,
+                sharpBook: sharp.spreadsSource.label,
                 confidence: Math.min(5, Math.max(1, Math.round(evPct / 1.5))) as number | null,
                 lineAgeMinutes: Math.floor((Date.now() - new Date(bookie.last_update).getTime()) / 60000),
               };
@@ -202,20 +206,21 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
               }
             }
           } else if (market.key === "totals" && outcomes.length === 2) {
+            if (bookie.key === sharp.totalsSource.key) continue;
             for (const outcome of outcomes) {
               const key = `${outcome.name}_${outcome.point}`;
-              const pinEntry = pinnacle.totals.get(key);
-              if (!pinEntry) continue;
+              const sharpEntry = sharp.totals.get(key);
+              if (!sharpEntry) continue;
 
               const other = outcomes.find((o) => o.name !== outcome.name);
               if (!other) continue;
 
-              const pinKey2 = `${other.name}_${other.point}`;
-              const pinEntry2 = pinnacle.totals.get(pinKey2);
-              if (!pinEntry2) continue;
+              const sharpKey2 = `${other.name}_${other.point}`;
+              const sharpEntry2 = sharp.totals.get(sharpKey2);
+              if (!sharpEntry2) continue;
 
-              const p1 = americanToImpliedProb(pinEntry.odds);
-              const p2 = americanToImpliedProb(pinEntry2.odds);
+              const p1 = americanToImpliedProb(sharpEntry.odds);
+              const p2 = americanToImpliedProb(sharpEntry2.odds);
               const { p1: nv } = deVig2Way(p1, p2);
 
               const evPct = calcEVPercent(nv, outcome.price);
@@ -235,7 +240,8 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                 kellyFraction: quarterKelly(nv, outcome.price),
                 suggestedUnits: quarterKelly(nv, outcome.price),
                 commenceTime: game.commence_time,
-                pinnacleOdds: pinEntry.odds,
+                sharpOdds: sharpEntry.odds,
+                sharpBook: sharp.totalsSource.label,
                 confidence: Math.min(5, Math.max(1, Math.round(evPct / 1.5))) as number | null,
                 lineAgeMinutes: Math.floor((Date.now() - new Date(bookie.last_update).getTime()) / 60000),
               };
@@ -277,7 +283,7 @@ router.get("/odds/near-misses", async (req, res): Promise<void> => {
   try {
     const sportsToScan = sport
       ? [sport]
-      : ["americanfootball_nfl", "baseball_mlb", "basketball_nba", "icehockey_nhl"];
+      : ["americanfootball_nfl", "baseball_mlb", "basketball_nba", "icehockey_nhl", "americanfootball_ncaaf", "basketball_ncaab", "basketball_wnba", "golf_pga_championship"];
 
     const { games } = await fetchMultiSportOdds(sportsToScan, "h2h");
     const nearMisses = [];
@@ -285,14 +291,14 @@ router.get("/odds/near-misses", async (req, res): Promise<void> => {
 
     for (const game of games) {
       if (new Date(game.commence_time).getTime() < cutoff) continue;
-      const pinnacle = extractPinnacleProbs(game.bookmakers as any);
+      const sharp = extractSharpLineProbs(game.bookmakers as any);
 
       for (const bookie of game.bookmakers) {
-        if (bookie.key === "pinnacle") continue;
+        if (bookie.key === sharp.h2hSource.key) continue;
         for (const market of bookie.markets) {
           if (market.key !== "h2h" || market.outcomes.length !== 2) continue;
           for (const outcome of market.outcomes) {
-            const noVigProb = pinnacle.h2h.get(outcome.name);
+            const noVigProb = sharp.h2h.get(outcome.name);
             if (!noVigProb) continue;
             const evPct = calcEVPercent(noVigProb, outcome.price);
             if (evPct > 0 && evPct < minEv) {

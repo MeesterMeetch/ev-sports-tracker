@@ -24,7 +24,9 @@ export interface EvBet {
   suggestedUnits: number;
   commenceTime: string;
   /** @nullable */
-  pinnacleOdds?: number | null;
+  sharpOdds?: number | null;
+  /** @nullable */
+  sharpBook?: string | null;
   /** @nullable */
   confidence?: number | null;
   /** @nullable */
