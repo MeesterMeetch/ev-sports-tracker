@@ -19,6 +19,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
   
   const syncMutation = useSyncEmails();
 
+  function extractSyncError(err: unknown): string {
+    if (err instanceof Error) {
+      try {
+        const parsed = JSON.parse(err.message) as { error?: string };
+        if (parsed.error) return parsed.error;
+      } catch {}
+      return err.message;
+    }
+    return "Unknown error — check the server logs.";
+  }
+
   const handleSync = () => {
     syncMutation.mutate({ data: { maxEmails: 20 } }, {
       onSuccess: (data) => {
@@ -32,13 +43,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
         queryClient.invalidateQueries({ queryKey: getListTrendsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListEntitiesQueryKey() });
       },
-      onError: () => {
+      onError: (err: unknown) => {
         toast({
           title: "Sync Failed",
-          description: "Failed to sync emails. Please try again.",
-          variant: "destructive"
+          description: extractSyncError(err),
+          variant: "destructive",
         });
-      }
+      },
     });
   };
 

@@ -63,12 +63,16 @@ export default function SignalInbox() {
           queryClient.invalidateQueries({ queryKey: getListEntitiesQueryKey() });
         },
         onError: (err: unknown) => {
-          const msg = err instanceof Error ? err.message : "Unknown error";
-          toast({
-            title: "Sync Failed",
-            description: msg,
-            variant: "destructive",
-          });
+          let msg = "Unknown error — check the server logs.";
+          if (err instanceof Error) {
+            try {
+              const parsed = JSON.parse(err.message) as { error?: string };
+              msg = parsed.error ?? err.message;
+            } catch {
+              msg = err.message;
+            }
+          }
+          toast({ title: "Sync Failed", description: msg, variant: "destructive" });
         },
       }
     );

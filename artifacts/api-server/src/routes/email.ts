@@ -122,7 +122,18 @@ router.post("/email/sync", async (req, res): Promise<void> => {
     });
   } catch (err) {
     req.log.error({ err }, "Email sync failed");
-    res.status(500).json({ error: String(err) });
+    const msg = String(err);
+    if (msg.includes("401") || msg.toLowerCase().includes("unauthorized")) {
+      res.status(401).json({
+        error: "Google Mail is not authorized. Open Replit Integrations → Google Mail and connect your account, then try again.",
+      });
+    } else if (msg.includes("403")) {
+      res.status(403).json({
+        error: "Google Mail access was denied. Check that the integration has Gmail read permissions.",
+      });
+    } else {
+      res.status(500).json({ error: msg });
+    }
   }
 });
 
