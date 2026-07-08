@@ -33,6 +33,18 @@ export const emailEntities = pgTable("email_entities", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const oauthTokens = pgTable("oauth_tokens", {
+  id: serial("id").primaryKey(),
+  provider: text("provider").notNull().unique(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token"),
+  expiresAt: timestamp("expires_at"),
+  scope: text("scope"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export type EmailSignal = typeof emailSignals.$inferSelect;
 export type ActionItem = typeof actionItems.$inferSelect;
 export type EmailEntity = typeof emailEntities.$inferSelect;
+export type OauthToken = typeof oauthTokens.$inferSelect;

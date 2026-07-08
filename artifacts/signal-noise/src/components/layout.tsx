@@ -1,7 +1,7 @@
 import { useLocation, Link } from "wouter";
-import { Inbox, CheckSquare, Users, TrendingUp, RefreshCw } from "lucide-react";
+import { Inbox, CheckSquare, Users, TrendingUp, RefreshCw, Mail, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useSyncEmails } from "@workspace/api-client-react";
 import { 
@@ -12,11 +12,26 @@ import {
   getListEntitiesQueryKey
 } from "@workspace/api-client-react";
 
+async function fetchGmailStatus(): Promise<{ connected: boolean }> {
+  const res = await fetch("/api/auth/google/status");
+  if (!res.ok) return { connected: false };
+  return res.json() as Promise<{ connected: boolean }>;
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  
+
+  const { data: gmailStatus } = useQuery({
+    queryKey: ["gmail-status"],
+    queryFn: fetchGmailStatus,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const isConnected = gmailStatus?.connected ?? false;
+
   const syncMutation = useSyncEmails();
 
   function extractSyncError(err: unknown): string {
@@ -42,6 +57,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         queryClient.invalidateQueries({ queryKey: getListActionsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListTrendsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListEntitiesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ["gmail-status"] });
       },
       onError: (err: unknown) => {
         toast({
@@ -49,6 +65,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           description: extractSyncError(err),
           variant: "destructive",
         });
+        queryClient.invalidateQueries({ queryKey: ["gmail-status"] });
       },
     });
   };
@@ -62,7 +79,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row">
-      {/* Sidebar */}
       <aside className="w-full md:w-64 border-r border-border bg-card p-6 flex flex-col">
         <div className="mb-8">
           <h1 className="text-xl font-serif font-bold">Signal vs. Noise</h1>
@@ -87,20 +103,42 @@ export function Layout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="mt-8 pt-8 border-t border-border">
-          <Button 
-            className="w-full" 
-            onClick={handleSync} 
-            disabled={syncMutation.isPending}
-            data-testid="button-sync-gmail"
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-            {syncMutation.isPending ? "Syncing..." : "Sync Gmail"}
-          </Button>
+        <div className="mt-8 pt-8 border-t border-border space-y-3">
+          {isConnected ? (
+            <>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+                <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                <span>Gmail connected</span>
+              </div>
+              <Button
+                className="w-full"
+                onClick={handleSync}
+                disabled={syncMutation.isPending}
+                data-testid="button-sync-gmail"
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                {syncMutation.isPending ? "Syncing..." : "Sync Gmail"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground px-1">
+                Connect your Gmail account to start syncing emails.
+              </p>
+              <Button
+                className="w-full"
+                variant="outline"
+                onClick={() => { window.location.href = "/api/auth/google"; }}
+                data-testid="button-connect-gmail"
+              >
+                <Mail className="mr-2 h-4 w-4" />
+                Connect Gmail
+              </Button>
+            </>
+          )}
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 p-6 md:p-12 max-w-5xl mx-auto w-full">
         {children}
       </main>
