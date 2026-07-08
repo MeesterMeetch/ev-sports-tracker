@@ -59,7 +59,8 @@ router.get("/odds/games", async (req, res): Promise<void> => {
       games = result.games;
     }
 
-    const response = games.map((g) => ({
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    const response = games.filter((g) => new Date(g.commence_time).getTime() >= cutoff).map((g) => ({
       id: g.id,
       homeTeam: g.home_team,
       awayTeam: g.away_team,
@@ -99,8 +100,10 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
 
     const evBets = [];
     const nearMisses = [];
+    const cutoff = Date.now() - 10 * 60 * 1000;
 
     for (const game of games) {
+      if (new Date(game.commence_time).getTime() < cutoff) continue;
       const pinnacle = extractPinnacleProbs(game.bookmakers as any);
 
       for (const bookie of game.bookmakers) {
@@ -275,8 +278,10 @@ router.get("/odds/near-misses", async (req, res): Promise<void> => {
 
     const { games } = await fetchMultiSportOdds(sportsToScan, "h2h");
     const nearMisses = [];
+    const cutoff = Date.now() - 10 * 60 * 1000;
 
     for (const game of games) {
+      if (new Date(game.commence_time).getTime() < cutoff) continue;
       const pinnacle = extractPinnacleProbs(game.bookmakers as any);
 
       for (const bookie of game.bookmakers) {
