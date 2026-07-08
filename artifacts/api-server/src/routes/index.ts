@@ -5,6 +5,7 @@ import betsRouter from "./bets";
 import analysisRouter from "./analysis";
 import emailRouter from "./email";
 import authRouter from "./auth";
+import digestRouter from "./digest";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(betsRouter);
 router.use(analysisRouter);
 router.use(emailRouter);
 router.use(authRouter);
+router.use(digestRouter);
 
 export default router;
