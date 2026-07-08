@@ -186,7 +186,18 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
               if (!retailOther) continue;
 
               const found2 = findNearestSharpEntry(sharp.spreads, retailOther.name, retailOther.point ?? 0);
-              if (!found2) continue;
+              if (!found2) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    missingOtherSide: retailOther.name,
+                  },
+                  "spreads: sharp book missing other-side outcome — skipping this outcome",
+                );
+                continue;
+              }
               const sharpEntry2 = found2.entry;
 
               const pointDiff = found1.pointDiff;
@@ -251,7 +262,18 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
               if (!retailOther) continue;
 
               const found2 = findNearestSharpEntry(sharp.totals, retailOther.name, retailOther.point ?? 0);
-              if (!found2) continue;
+              if (!found2) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    missingOtherSide: retailOther.name,
+                  },
+                  "totals: sharp book missing other-side outcome — skipping this outcome",
+                );
+                continue;
+              }
               const sharpEntry2 = found2.entry;
 
               const pointDiff = found1.pointDiff;

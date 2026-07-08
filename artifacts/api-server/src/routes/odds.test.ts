@@ -458,6 +458,122 @@ describe("GET /api/odds/ev-card", () => {
     expect(nearMiss).toHaveProperty("breakEvenOdds");
   });
 
+  it("skips a spread outcome (not crash) when the sharp book has only one side posted", async () => {
+    const gameOneSidedSpread = {
+      id: "game-one-sided-spread",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              // Only TeamA posted — TeamB line missing from sharp book
+              outcomes: [{ name: "TeamA", price: -110, point: -3.5 }],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: 110, point: -3.5 },
+                { name: "TeamB", price: -130, point: 3.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameOneSidedSpread])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    // No spread bets — de-vig requires both sides; one-sided sharp data is an
+    // explicit logged skip, not a silent drop or crash.
+    const spreadBets = res.body.bets.filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+    const spreadNearMisses = res.body.nearMisses.filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+    expect(spreadBets).toHaveLength(0);
+    expect(spreadNearMisses).toHaveLength(0);
+  });
+
+  it("skips a totals outcome (not crash) when the sharp book has only one side posted", async () => {
+    const gameOneSidedTotals = {
+      id: "game-one-sided-totals",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              // Only Over posted — Under line missing from sharp book
+              outcomes: [{ name: "Over", price: -110, point: 8.5 }],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: 105, point: 8.5 },
+                { name: "Under", price: -125, point: 8.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameOneSidedTotals])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    // No totals bets — de-vig requires both sides; one-sided sharp data is an
+    // explicit logged skip, not a silent drop or crash.
+    const totalsBets = res.body.bets.filter(
+      (b: { market: string }) => b.market === "totals"
+    );
+    const totalsNearMisses = res.body.nearMisses.filter(
+      (b: { market: string }) => b.market === "totals"
+    );
+    expect(totalsBets).toHaveLength(0);
+    expect(totalsNearMisses).toHaveLength(0);
+  });
+
   it("evaluates spread bets using the nearest sharp line when retail and sharp points differ", async () => {
     const gameMismatchedPoints = {
       id: "game-spreads-mismatch",
