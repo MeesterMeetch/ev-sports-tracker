@@ -9,6 +9,7 @@ import {
   quarterKelly,
   breakEvenOddsForEV,
   extractSharpLineProbs,
+  findNearestSharpEntry,
 } from "../lib/ev-math";
 import { logger } from "../lib/logger";
 
@@ -177,16 +178,31 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
           } else if (market.key === "spreads" && outcomes.length === 2) {
             if (bookie.key === sharp.spreadsSource.key) continue;
             for (const outcome of outcomes) {
-              const key = `${outcome.name}_${outcome.point}`;
-              const sharpEntry = sharp.spreads.get(key);
-              if (!sharpEntry) continue;
+              const found1 = findNearestSharpEntry(sharp.spreads, outcome.name, outcome.point ?? 0);
+              if (!found1) continue;
+              const sharpEntry = found1.entry;
 
-              const sharpOtherOdds = outcomes.find((o) => o.name !== outcome.name);
-              if (!sharpOtherOdds) continue;
+              const retailOther = outcomes.find((o) => o.name !== outcome.name);
+              if (!retailOther) continue;
 
-              const sharpKey2 = `${sharpOtherOdds.name}_${sharpOtherOdds.point}`;
-              const sharpEntry2 = sharp.spreads.get(sharpKey2);
-              if (!sharpEntry2) continue;
+              const found2 = findNearestSharpEntry(sharp.spreads, retailOther.name, retailOther.point ?? 0);
+              if (!found2) continue;
+              const sharpEntry2 = found2.entry;
+
+              const pointDiff = found1.pointDiff;
+              if (pointDiff > 0) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    retailPoint: outcome.point,
+                    sharpPoint: sharpEntry.point,
+                    pointDiff,
+                  },
+                  "spreads point-line mismatch: using nearest sharp line as fallback",
+                );
+              }
 
               const p1 = americanToImpliedProb(sharpEntry.odds);
               const p2 = americanToImpliedProb(sharpEntry2.odds);
@@ -227,16 +243,31 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
           } else if (market.key === "totals" && outcomes.length === 2) {
             if (bookie.key === sharp.totalsSource.key) continue;
             for (const outcome of outcomes) {
-              const key = `${outcome.name}_${outcome.point}`;
-              const sharpEntry = sharp.totals.get(key);
-              if (!sharpEntry) continue;
+              const found1 = findNearestSharpEntry(sharp.totals, outcome.name, outcome.point ?? 0);
+              if (!found1) continue;
+              const sharpEntry = found1.entry;
 
-              const other = outcomes.find((o) => o.name !== outcome.name);
-              if (!other) continue;
+              const retailOther = outcomes.find((o) => o.name !== outcome.name);
+              if (!retailOther) continue;
 
-              const sharpKey2 = `${other.name}_${other.point}`;
-              const sharpEntry2 = sharp.totals.get(sharpKey2);
-              if (!sharpEntry2) continue;
+              const found2 = findNearestSharpEntry(sharp.totals, retailOther.name, retailOther.point ?? 0);
+              if (!found2) continue;
+              const sharpEntry2 = found2.entry;
+
+              const pointDiff = found1.pointDiff;
+              if (pointDiff > 0) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    retailPoint: outcome.point,
+                    sharpPoint: sharpEntry.point,
+                    pointDiff,
+                  },
+                  "totals point-line mismatch: using nearest sharp line as fallback",
+                );
+              }
 
               const p1 = americanToImpliedProb(sharpEntry.odds);
               const p2 = americanToImpliedProb(sharpEntry2.odds);

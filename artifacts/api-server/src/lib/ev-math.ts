@@ -45,6 +45,34 @@ export function breakEvenOddsForEV(estimatedProb: number, targetEvPct: number): 
   }
 }
 
+/**
+ * Finds the sharp entry for a given team name and point.
+ * Tries exact match first; falls back to the entry with the closest point
+ * for the same team name when lines have moved between sharp and retail books.
+ * Returns null if no entry exists for that team name at all.
+ */
+export function findNearestSharpEntry(
+  map: Map<string, { odds: number; point: number }>,
+  name: string,
+  point: number,
+): { entry: { odds: number; point: number }; pointDiff: number } | null {
+  const exact = map.get(`${name}_${point}`);
+  if (exact) return { entry: exact, pointDiff: 0 };
+
+  const prefix = `${name}_`;
+  let best: { odds: number; point: number } | null = null;
+  let bestDist = Infinity;
+  for (const [key, entry] of map) {
+    if (!key.startsWith(prefix)) continue;
+    const dist = Math.abs(entry.point - point);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = entry;
+    }
+  }
+  return best ? { entry: best, pointDiff: bestDist } : null;
+}
+
 export interface MarketSource {
   key: string | null;
   label: string;

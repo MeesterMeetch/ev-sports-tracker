@@ -458,7 +458,7 @@ describe("GET /api/odds/ev-card", () => {
     expect(nearMiss).toHaveProperty("breakEvenOdds");
   });
 
-  it("produces zero EV bets when retail spread point does not match the sharp-book point", async () => {
+  it("evaluates spread bets using the nearest sharp line when retail and sharp points differ", async () => {
     const gameMismatchedPoints = {
       id: "game-spreads-mismatch",
       sport_key: "baseball_mlb",
@@ -509,12 +509,14 @@ describe("GET /api/odds/ev-card", () => {
     const spreadBets = res.body.bets.filter(
       (b: { market: string }) => b.market === "spreads"
     );
-    const spreadNearMisses = res.body.nearMisses.filter(
-      (b: { market: string }) => b.market === "spreads"
-    );
 
-    expect(spreadBets.length).toBe(0);
-    expect(spreadNearMisses.length).toBe(0);
-    expect(res.body.hasBets).toBe(false);
+    expect(spreadBets.length).toBeGreaterThan(0);
+    const teamABet = spreadBets.find(
+      (b: { selection: string }) => b.selection === "TeamA"
+    );
+    expect(teamABet).toBeDefined();
+    expect(teamABet.evPercent).toBeGreaterThan(0);
+    expect(teamABet.sharpBook).toBe("LowVig");
+    expect(teamABet.point).toBe(-4.5);
   });
 });
