@@ -306,4 +306,191 @@ describe("GET /api/odds/ev-card", () => {
 
     expect(res.body).toHaveProperty("error");
   });
+
+  it("surfaces a spreads +EV bet when retail point matches the sharp-book point", async () => {
+    const gameSpreadEV = {
+      id: "game-spreads-001",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: -110, point: -3.5 },
+                { name: "TeamB", price: -110, point: 3.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: 110, point: -3.5 },
+                { name: "TeamB", price: -130, point: 3.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameSpreadEV])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    expect(res.body.hasBets).toBe(true);
+    const spreadBet = res.body.bets.find(
+      (b: { market: string; selection: string }) =>
+        b.market === "spreads" && b.selection === "TeamA"
+    );
+    expect(spreadBet).toBeDefined();
+    expect(spreadBet.market).toBe("spreads");
+    expect(spreadBet.point).toBe(-3.5);
+    expect(spreadBet.evPercent).toBeGreaterThanOrEqual(2.0);
+    expect(spreadBet.bookmaker).toBe("DraftKings");
+    expect(spreadBet.sharpBook).toBe("LowVig");
+    expect(spreadBet.noVigProb).toBeCloseTo(0.5, 3);
+  });
+
+  it("surfaces a totals near-miss when EV is positive but below minEv threshold", async () => {
+    const gameTotalsNearMiss = {
+      id: "game-totals-001",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: -110, point: 9.5 },
+                { name: "Under", price: -110, point: 9.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: 101, point: 9.5 },
+                { name: "Under", price: -121, point: 9.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameTotalsNearMiss])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card?minEv=2")
+      .expect(200);
+
+    const evBet = res.body.bets.find(
+      (b: { market: string }) => b.market === "totals"
+    );
+    const nearMiss = res.body.nearMisses.find(
+      (b: { market: string; selection: string }) =>
+        b.market === "totals" && b.selection === "Over 9.5"
+    );
+
+    expect(evBet).toBeUndefined();
+    expect(nearMiss).toBeDefined();
+    expect(nearMiss.evPercent).toBeGreaterThan(0);
+    expect(nearMiss.evPercent).toBeLessThan(2.0);
+    expect(nearMiss.point).toBe(9.5);
+    expect(nearMiss.sharpBook).toBe("LowVig");
+    expect(nearMiss).toHaveProperty("breakEvenOdds");
+  });
+
+  it("produces zero EV bets when retail spread point does not match the sharp-book point", async () => {
+    const gameMismatchedPoints = {
+      id: "game-spreads-mismatch",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: -110, point: -3.5 },
+                { name: "TeamB", price: -110, point: 3.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: 110, point: -4.5 },
+                { name: "TeamB", price: -130, point: 4.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameMismatchedPoints])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    const spreadBets = res.body.bets.filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+    const spreadNearMisses = res.body.nearMisses.filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+
+    expect(spreadBets.length).toBe(0);
+    expect(spreadNearMisses.length).toBe(0);
+    expect(res.body.hasBets).toBe(false);
+  });
 });
