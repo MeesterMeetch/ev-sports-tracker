@@ -15,6 +15,9 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+const oddsKey = process.env["ODDS_API_KEY"] ?? "";
+logger.info({ oddsKeyPrefix: oddsKey.slice(0, 8), oddsKeyLength: oddsKey.length }, "ODDS_API_KEY check");
+
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
