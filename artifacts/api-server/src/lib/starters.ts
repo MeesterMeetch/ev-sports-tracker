@@ -22,7 +22,7 @@ function teamsMatch(a: string, b: string): boolean {
 
 async function fetchMlbStarters(): Promise<GameStarter[]> {
   const today = new Date().toLocaleDateString("en-CA");
-  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher(note)`;
+  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher(note),lineups`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) throw new Error(`MLB API ${res.status}`);
@@ -33,6 +33,10 @@ async function fetchMlbStarters(): Promise<GameStarter[]> {
             away: { team: { name: string }; probablePitcher?: { fullName: string } };
             home: { team: { name: string }; probablePitcher?: { fullName: string } };
           };
+          lineups?: {
+            homePitchers?: Array<{ person: { fullName: string } }>;
+            awayPitchers?: Array<{ person: { fullName: string } }>;
+          };
         }>;
       }>;
     };
@@ -40,14 +44,17 @@ async function fetchMlbStarters(): Promise<GameStarter[]> {
     const starters: GameStarter[] = [];
     for (const date of json.dates ?? []) {
       for (const game of date.games ?? []) {
+        const confirmedHome = game.lineups?.homePitchers?.[0]?.person.fullName ?? null;
+        const confirmedAway = game.lineups?.awayPitchers?.[0]?.person.fullName ?? null;
+        const confirmed = confirmedHome !== null || confirmedAway !== null;
         starters.push({
           homeTeam: game.teams.home.team.name,
           awayTeam: game.teams.away.team.name,
           sport: "baseball_mlb",
-          homeStarter: game.teams.home.probablePitcher?.fullName ?? null,
-          awayStarter: game.teams.away.probablePitcher?.fullName ?? null,
+          homeStarter: confirmedHome ?? game.teams.home.probablePitcher?.fullName ?? null,
+          awayStarter: confirmedAway ?? game.teams.away.probablePitcher?.fullName ?? null,
           starterType: "pitcher",
-          confirmed: false,
+          confirmed,
         });
       }
     }
