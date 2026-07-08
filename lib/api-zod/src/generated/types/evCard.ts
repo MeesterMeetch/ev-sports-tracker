@@ -7,6 +7,7 @@
  */
 import type { EvBet } from './evBet';
 import type { NearMiss } from './nearMiss';
+import type { SharpCoverage } from './sharpCoverage';
 
 export interface EvCard {
   date: string;
@@ -15,4 +16,5 @@ export interface EvCard {
   hasBets: boolean;
   /** @nullable */
   requestsRemaining: number | null;
+  sharpCoverage?: SharpCoverage;
 }

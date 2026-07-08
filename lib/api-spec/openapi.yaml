@@ -532,6 +532,19 @@ components:
         commenceTime:
           type: string
 
+    SharpCoverage:
+      type: object
+      required: [gamesEvaluated, gamesWithSharpH2H, gamesWithSharpSpreads, gamesWithSharpTotals]
+      properties:
+        gamesEvaluated:
+          type: integer
+        gamesWithSharpH2H:
+          type: integer
+        gamesWithSharpSpreads:
+          type: integer
+        gamesWithSharpTotals:
+          type: integer
+
     EvCard:
       type: object
       required: [date, bets, nearMisses, hasBets, requestsRemaining]
@@ -550,6 +563,8 @@ components:
           type: boolean
         requestsRemaining:
           type: ["integer", "null"]
+        sharpCoverage:
+          $ref: "#/components/schemas/SharpCoverage"
 
     GameWithOdds:
       type: object

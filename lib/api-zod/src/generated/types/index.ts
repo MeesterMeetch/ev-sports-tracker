@@ -33,6 +33,7 @@ export * from './market';
 export * from './nearMiss';
 export * from './outcome';
 export * from './senderStat';
+export * from './sharpCoverage';
 export * from './sport';
 export * from './sportStats';
 export * from './syncInput';

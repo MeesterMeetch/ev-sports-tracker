@@ -90,6 +90,13 @@ export interface NearMiss {
   commenceTime: string;
 }
 
+export interface SharpCoverage {
+  gamesEvaluated: number;
+  gamesWithSharpH2H: number;
+  gamesWithSharpSpreads: number;
+  gamesWithSharpTotals: number;
+}
+
 export interface EvCard {
   date: string;
   bets: EvBet[];
@@ -97,6 +104,7 @@ export interface EvCard {
   hasBets: boolean;
   /** @nullable */
   requestsRemaining: number | null;
+  sharpCoverage?: SharpCoverage;
 }
 
 export interface GameWithOdds {

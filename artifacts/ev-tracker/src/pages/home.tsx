@@ -11,7 +11,7 @@ import {
   useListBets,
   getListBetsQueryKey,
 } from "@workspace/api-client-react";
-import type { EvBet, GameStarter } from "@workspace/api-client-react";
+import type { EvBet, GameStarter, SharpCoverage } from "@workspace/api-client-react";
 import {
   formatAmericanOdds,
   formatPercent,
@@ -130,6 +130,34 @@ function FreshnessBadge({ ageMinutes }: { ageMinutes: number }) {
   return (
     <div className="flex items-center gap-1 mt-1 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
       <AlertTriangle className="w-3 h-3 shrink-0" /><span>Line {label} — re-verify before betting</span>
+    </div>
+  );
+}
+
+function SharpCoverageBanner({ coverage }: { coverage: SharpCoverage }) {
+  const { gamesEvaluated, gamesWithSharpH2H, gamesWithSharpSpreads, gamesWithSharpTotals } = coverage;
+  if (gamesEvaluated === 0) return null;
+
+  const markets: { label: string; count: number }[] = [
+    { label: "Moneyline", count: gamesWithSharpH2H },
+    { label: "Spreads", count: gamesWithSharpSpreads },
+    { label: "Totals", count: gamesWithSharpTotals },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      <span className="font-medium text-foreground/70">Sharp coverage</span>
+      {markets.map(({ label, count }) => {
+        const pct = gamesEvaluated > 0 ? count / gamesEvaluated : 0;
+        const colorClass = pct >= 0.75 ? "text-green-400" : pct >= 0.4 ? "text-yellow-400" : "text-red-400";
+        return (
+          <span key={label} className="flex items-center gap-1">
+            <span>{label}:</span>
+            <span className={`font-semibold tabular-nums ${colorClass}`}>{count}/{gamesEvaluated}</span>
+            <span>games</span>
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -359,6 +387,9 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Sharp coverage banner */}
+      {evCard?.sharpCoverage && <SharpCoverageBanner coverage={evCard.sharpCoverage} />}
 
       {/* Bet cards */}
       {isEvLoading ? (
