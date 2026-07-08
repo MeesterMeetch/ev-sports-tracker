@@ -97,7 +97,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
       ? [sport]
       : ["americanfootball_nfl", "baseball_mlb", "basketball_nba", "icehockey_nhl", "americanfootball_ncaaf", "basketball_ncaab", "basketball_wnba", "golf_pga_championship"];
 
-    const { games, requestsRemaining } = await fetchMultiSportOdds(sportsToScan, "h2h,spreads,totals");
+    const { games, requestsRemaining, quotaExhausted } = await fetchMultiSportOdds(sportsToScan, "h2h,spreads,totals");
 
     const evBets = [];
     const nearMisses = [];
@@ -288,6 +288,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
       nearMisses: nearMisses.slice(0, 10),
       hasBets: evBets.length > 0,
       requestsRemaining,
+      quotaExhausted,
       sharpCoverage: {
         gamesEvaluated,
         gamesWithSharpH2H,

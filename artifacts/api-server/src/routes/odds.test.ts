@@ -30,8 +30,8 @@ function makeTestApp() {
   return app;
 }
 
-function makeOddsApiResponse(games: object[]) {
-  return { games, requestsRemaining: 450 };
+function makeOddsApiResponse(games: object[], quotaExhausted = false) {
+  return { games, requestsRemaining: 450, quotaExhausted };
 }
 
 const FIXTURE_GAME_LOWVIG = {
@@ -305,6 +305,30 @@ describe("GET /api/odds/ev-card", () => {
       .expect(500);
 
     expect(res.body).toHaveProperty("error");
+  });
+
+  it("returns quotaExhausted: false when all sports fetch successfully", async () => {
+    mockFetchMultiSportOdds.mockResolvedValue(makeOddsApiResponse([], false));
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    expect(res.body.quotaExhausted).toBe(false);
+  });
+
+  it("returns quotaExhausted: true and partial bets when some sports hit the quota mid-scan", async () => {
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([FIXTURE_GAME_LOWVIG], true)
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    expect(res.body.quotaExhausted).toBe(true);
+    expect(res.body.hasBets).toBe(true);
+    expect(res.body.bets.length).toBeGreaterThan(0);
   });
 
   it("surfaces a spreads +EV bet when retail point matches the sharp-book point", async () => {

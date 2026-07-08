@@ -72,7 +72,7 @@ export async function fetchOdds(sportKey: string, markets = "h2h,spreads,totals"
   });
 }
 
-export async function fetchMultiSportOdds(sportKeys: string[], markets = "h2h,spreads,totals"): Promise<{ games: OddsGame[]; requestsRemaining: number | null }> {
+export async function fetchMultiSportOdds(sportKeys: string[], markets = "h2h,spreads,totals"): Promise<{ games: OddsGame[]; requestsRemaining: number | null; quotaExhausted: boolean }> {
   const allGames: OddsGame[] = [];
   let requestsRemaining: number | null = null;
   let quotaExhausted = false;
@@ -86,7 +86,11 @@ export async function fetchMultiSportOdds(sportKeys: string[], markets = "h2h,sp
       successCount++;
     } catch (err) {
       const msg = String(err);
-      if (msg.includes("OUT_OF_USAGE_CREDITS") || msg.includes("quota")) {
+      if (
+        msg.includes("OUT_OF_USAGE_CREDITS") ||
+        msg.includes("quota") ||
+        msg.includes("429")
+      ) {
         quotaExhausted = true;
       }
       logger.warn({ sport: key, err }, "Failed to fetch odds for sport");
@@ -97,5 +101,5 @@ export async function fetchMultiSportOdds(sportKeys: string[], markets = "h2h,sp
     throw new Error("Odds API quota exhausted — top up at https://the-odds-api.com");
   }
 
-  return { games: allGames, requestsRemaining };
+  return { games: allGames, requestsRemaining, quotaExhausted };
 }
