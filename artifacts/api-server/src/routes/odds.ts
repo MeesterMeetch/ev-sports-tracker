@@ -18,6 +18,7 @@ const ACTIVE_SPORTS = [
   "americanfootball_nfl",
   "americanfootball_ncaaf",
   "basketball_nba",
+  "basketball_wnba",
   "basketball_ncaab",
   "baseball_mlb",
   "icehockey_nhl",

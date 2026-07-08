@@ -2,6 +2,7 @@ const SPORT_LABELS: Record<string, string> = {
   americanfootball_nfl: "NFL",
   americanfootball_ncaaf: "NCAAF",
   basketball_nba: "NBA",
+  basketball_wnba: "WNBA",
   basketball_ncaab: "NCAAB",
   baseball_mlb: "MLB",
   icehockey_nhl: "NHL",
