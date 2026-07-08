@@ -1,7 +1,7 @@
 import { logger } from "./logger";
 
 const ODDS_API_BASE = "https://api.the-odds-api.com/v4";
-const API_KEY = process.env.ODDS_API_KEY;
+const API_KEY = process.env.ODDS_API_KEY_V2 ?? process.env.ODDS_API_KEY;
 
 export interface OddsOutcome {
   name: string;

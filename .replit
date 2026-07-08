@@ -22,3 +22,8 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+ODDS_API_KEY_V2 = "47b9ba12322bdfbb153187e71f871a9b"
