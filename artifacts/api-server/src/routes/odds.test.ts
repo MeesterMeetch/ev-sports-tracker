@@ -697,4 +697,128 @@ describe("GET /api/odds/ev-card", () => {
     expect(teamABet.sharpBook).toBe("LowVig");
     expect(teamABet.point).toBe(-4.5);
   });
+
+  it("does not drop spread bets when retail and sharp points differ by exactly 1.5", async () => {
+    const gameMaxDiffSpread = {
+      id: "game-spreads-maxdiff",
+      sport_key: "americanfootball_nfl",
+      sport_title: "NFL",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              // Sharp book posted at -3; retail is at -4.5 (diff = 1.5)
+              outcomes: [
+                { name: "TeamA", price: -110, point: -3 },
+                { name: "TeamB", price: -110, point: 3 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: 115, point: -4.5 },
+                { name: "TeamB", price: -135, point: 4.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameMaxDiffSpread])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    const allSpread = [...res.body.bets, ...res.body.nearMisses].filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+    // The bet must be evaluated (not silently dropped), and the retail point retained
+    expect(allSpread.length).toBeGreaterThan(0);
+    const teamAEntry = allSpread.find(
+      (b: { selection: string }) => b.selection === "TeamA"
+    );
+    expect(teamAEntry).toBeDefined();
+    expect(teamAEntry.point).toBe(-4.5);
+    expect(teamAEntry.sharpBook).toBe("LowVig");
+  });
+
+  it("does not drop totals bets when retail and sharp points differ by exactly 1.5", async () => {
+    const gameMaxDiffTotals = {
+      id: "game-totals-maxdiff",
+      sport_key: "americanfootball_nfl",
+      sport_title: "NFL",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              // Sharp book posted at 47.5; retail is at 46 (diff = 1.5)
+              outcomes: [
+                { name: "Over", price: -110, point: 47.5 },
+                { name: "Under", price: -110, point: 47.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: 115, point: 46 },
+                { name: "Under", price: -135, point: 46 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameMaxDiffTotals])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    const allTotals = [...res.body.bets, ...res.body.nearMisses].filter(
+      (b: { market: string }) => b.market === "totals"
+    );
+    // The bet must be evaluated (not silently dropped), and the retail point retained
+    expect(allTotals.length).toBeGreaterThan(0);
+    const overEntry = allTotals.find(
+      (b: { selection: string }) => b.selection === "Over 46"
+    );
+    expect(overEntry).toBeDefined();
+    expect(overEntry.point).toBe(46);
+    expect(overEntry.sharpBook).toBe("LowVig");
+  });
 });

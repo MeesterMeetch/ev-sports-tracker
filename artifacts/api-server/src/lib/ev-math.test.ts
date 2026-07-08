@@ -8,6 +8,7 @@ import {
   quarterKelly,
   breakEvenOddsForEV,
   extractSharpLineProbs,
+  findNearestSharpEntry,
 } from "./ev-math";
 
 // ---------------------------------------------------------------------------
@@ -199,6 +200,111 @@ describe("extractSharpLineProbs – h2h source cascade", () => {
 
     expect(sharp.h2h.size).toBe(0);
     expect(sharp.h2hSource.key).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findNearestSharpEntry
+// ---------------------------------------------------------------------------
+
+describe("findNearestSharpEntry", () => {
+  function makeMap(
+    entries: Array<{ name: string; point: number; odds: number }>,
+  ): Map<string, { odds: number; point: number }> {
+    const m = new Map<string, { odds: number; point: number }>();
+    for (const e of entries) {
+      m.set(`${e.name}_${e.point}`, { odds: e.odds, point: e.point });
+    }
+    return m;
+  }
+
+  it("returns the exact entry with pointDiff 0 when the key matches exactly", () => {
+    const map = makeMap([
+      { name: "TeamA", point: -3.5, odds: -110 },
+      { name: "TeamB", point: 3.5, odds: -110 },
+    ]);
+
+    const result = findNearestSharpEntry(map, "TeamA", -3.5);
+
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBe(0);
+    expect(result!.entry.odds).toBe(-110);
+    expect(result!.entry.point).toBe(-3.5);
+  });
+
+  it("falls back to the nearest-point entry and returns the correct pointDiff", () => {
+    const map = makeMap([
+      { name: "TeamA", point: -3.5, odds: -108 },
+      { name: "TeamB", point: 3.5, odds: -112 },
+    ]);
+
+    // Retail is at -4; sharp is at -3.5 → diff = 0.5
+    const result = findNearestSharpEntry(map, "TeamA", -4);
+
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(0.5);
+    expect(result!.entry.point).toBe(-3.5);
+    expect(result!.entry.odds).toBe(-108);
+  });
+
+  it("picks the closest entry when multiple sharp points are available for the same team", () => {
+    const map = makeMap([
+      { name: "TeamA", point: -2.5, odds: -105 },
+      { name: "TeamA", point: -3.5, odds: -110 },
+      { name: "TeamA", point: -4.5, odds: -115 },
+    ]);
+
+    // Retail at -4 is equidistant between -3.5 and -4.5; either is acceptable,
+    // but the function must pick one deterministically and report diff ≤ 0.5.
+    const result = findNearestSharpEntry(map, "TeamA", -4);
+
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(0.5);
+  });
+
+  it("returns null when no entry exists for the requested team name", () => {
+    const map = makeMap([
+      { name: "TeamA", point: -3.5, odds: -110 },
+    ]);
+
+    const result = findNearestSharpEntry(map, "TeamB", 3.5);
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null for an empty map", () => {
+    const map = new Map<string, { odds: number; point: number }>();
+
+    expect(findNearestSharpEntry(map, "TeamA", -3.5)).toBeNull();
+  });
+
+  it("handles totals-style entries (Over/Under at the same point)", () => {
+    const map = makeMap([
+      { name: "Over", point: 9.5, odds: -110 },
+      { name: "Under", point: 9.5, odds: -110 },
+    ]);
+
+    const over = findNearestSharpEntry(map, "Over", 9.5);
+    const under = findNearestSharpEntry(map, "Under", 9.5);
+
+    expect(over).not.toBeNull();
+    expect(over!.pointDiff).toBe(0);
+    expect(under).not.toBeNull();
+    expect(under!.pointDiff).toBe(0);
+  });
+
+  it("returns the fallback entry when the only sharp point differs by exactly 1.5", () => {
+    const map = makeMap([
+      { name: "Over", point: 9.5, odds: -110 },
+      { name: "Under", point: 9.5, odds: -110 },
+    ]);
+
+    // Retail at 8 → diff from 9.5 is 1.5 — must still resolve (not return null)
+    const result = findNearestSharpEntry(map, "Over", 8);
+
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(1.5);
+    expect(result!.entry.point).toBe(9.5);
   });
 });
 
