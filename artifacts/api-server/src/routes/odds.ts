@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { IRouter } from "express";
 import { fetchSports, fetchMultiSportOdds, fetchOdds } from "../lib/odds";
 import { fetchTodayStarters } from "../lib/starters";
+import { ACTIVE_SPORT_KEYS } from "@workspace/sports";
 import {
   americanToImpliedProb,
   deVig2Way,
@@ -15,18 +16,7 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-const ACTIVE_SPORTS = [
-  "americanfootball_nfl",
-  "americanfootball_ncaaf",
-  "basketball_nba",
-  "basketball_wnba",
-  "basketball_ncaab",
-  "baseball_mlb",
-  "icehockey_nhl",
-  "tennis_atp",
-  "golf_pga_championship",
-  "soccer_usa_mls",
-];
+const ACTIVE_SPORTS = ACTIVE_SPORT_KEYS;
 
 router.get("/odds/sports", async (req, res): Promise<void> => {
   try {

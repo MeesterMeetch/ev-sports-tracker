@@ -1,18 +1,9 @@
-const SPORT_LABELS: Record<string, string> = {
-  americanfootball_nfl: "NFL",
-  americanfootball_ncaaf: "NCAAF",
-  basketball_nba: "NBA",
-  basketball_wnba: "WNBA",
-  basketball_ncaab: "NCAAB",
-  baseball_mlb: "MLB",
-  icehockey_nhl: "NHL",
-  tennis_atp: "ATP",
-  golf_pga_championship: "PGA",
-  soccer_usa_mls: "MLS",
-};
+import { SPORTS, formatSportKey as _formatSportKey } from "@workspace/sports";
+
+export { SPORTS as SPORT_LABELS };
 
 export function formatSportKey(key: string): string {
-  return SPORT_LABELS[key] ?? key.split("_").pop()?.toUpperCase() ?? key;
+  return _formatSportKey(key);
 }
 
 export function formatGameTime(isoString: string): string {
