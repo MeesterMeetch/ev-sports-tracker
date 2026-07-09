@@ -10,6 +10,10 @@ import {
   extractSharpLineProbs,
   findNearestSharpEntry,
   MAX_POINT_DIFF,
+  SPREAD_POINT_RANGE,
+  TOTALS_POINT_RANGE,
+  isSpreadPointValid,
+  isTotalsPointValid,
 } from "./ev-math";
 
 // ---------------------------------------------------------------------------
@@ -534,6 +538,85 @@ describe("findNearestSharpEntry – pointDiff vs MAX_POINT_DIFF", () => {
     expect(result).not.toBeNull();
     expect(result!.pointDiff).toBeCloseTo(1.0);
     expect(result!.pointDiff).toBeLessThanOrEqual(MAX_POINT_DIFF);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Point-range guards — SPREAD_POINT_RANGE / TOTALS_POINT_RANGE
+// ---------------------------------------------------------------------------
+
+describe("SPREAD_POINT_RANGE / TOTALS_POINT_RANGE constants", () => {
+  it("spread range is [-30, 30]", () => {
+    expect(SPREAD_POINT_RANGE.min).toBe(-30);
+    expect(SPREAD_POINT_RANGE.max).toBe(30);
+  });
+
+  it("totals range is [0, 350]", () => {
+    expect(TOTALS_POINT_RANGE.min).toBe(0);
+    expect(TOTALS_POINT_RANGE.max).toBe(350);
+  });
+});
+
+describe("isSpreadPointValid", () => {
+  it("accepts typical spread values within the range", () => {
+    expect(isSpreadPointValid(-3.5)).toBe(true);
+    expect(isSpreadPointValid(3.5)).toBe(true);
+    expect(isSpreadPointValid(0)).toBe(true);
+    expect(isSpreadPointValid(-29.5)).toBe(true);
+    expect(isSpreadPointValid(29.5)).toBe(true);
+  });
+
+  it("accepts boundary values exactly at -30 and 30", () => {
+    expect(isSpreadPointValid(-30)).toBe(true);
+    expect(isSpreadPointValid(30)).toBe(true);
+  });
+
+  it("rejects a spread of 50 (absurd data-error value)", () => {
+    expect(isSpreadPointValid(50)).toBe(false);
+  });
+
+  it("rejects a spread of -50 (absurd data-error value)", () => {
+    expect(isSpreadPointValid(-50)).toBe(false);
+  });
+
+  it("rejects a spread of 31 (just outside the max)", () => {
+    expect(isSpreadPointValid(31)).toBe(false);
+  });
+
+  it("rejects a spread of -31 (just outside the min)", () => {
+    expect(isSpreadPointValid(-31)).toBe(false);
+  });
+});
+
+describe("isTotalsPointValid", () => {
+  it("accepts typical non-basketball totals values within the range", () => {
+    expect(isTotalsPointValid(9.5)).toBe(true);   // baseball/hockey
+    expect(isTotalsPointValid(45.5)).toBe(true);  // football
+    expect(isTotalsPointValid(0)).toBe(true);     // boundary
+    expect(isTotalsPointValid(60)).toBe(true);    // NFL high
+  });
+
+  it("accepts typical basketball totals (NBA/NCAAB commonly 150-240)", () => {
+    expect(isTotalsPointValid(220.5)).toBe(true);
+    expect(isTotalsPointValid(155)).toBe(true);
+    expect(isTotalsPointValid(240)).toBe(true);
+  });
+
+  it("accepts boundary values exactly at 0 and 350", () => {
+    expect(isTotalsPointValid(0)).toBe(true);
+    expect(isTotalsPointValid(350)).toBe(true);
+  });
+
+  it("rejects a totals line of 1000 (absurd data-error value)", () => {
+    expect(isTotalsPointValid(1000)).toBe(false);
+  });
+
+  it("rejects a totals line of 351 (just outside the max)", () => {
+    expect(isTotalsPointValid(351)).toBe(false);
+  });
+
+  it("rejects a negative totals line (impossible in practice)", () => {
+    expect(isTotalsPointValid(-1)).toBe(false);
   });
 });
 

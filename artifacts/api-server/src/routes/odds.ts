@@ -12,6 +12,8 @@ import {
   extractSharpLineProbs,
   findNearestSharpEntry,
   MAX_POINT_DIFF,
+  isSpreadPointValid,
+  isTotalsPointValid,
 } from "../lib/ev-math";
 import { logger } from "../lib/logger";
 
@@ -169,7 +171,20 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
           } else if (market.key === "spreads" && outcomes.length === 2) {
             if (bookie.key === sharp.spreadsSource.key) continue;
             for (const outcome of outcomes) {
-              const found1 = findNearestSharpEntry(sharp.spreads, outcome.name, outcome.point ?? 0);
+              const rawPoint = outcome.point ?? 0;
+              if (!isSpreadPointValid(rawPoint)) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    point: rawPoint,
+                  },
+                  "spreads: point value outside valid range — skipping bet",
+                );
+                continue;
+              }
+              const found1 = findNearestSharpEntry(sharp.spreads, outcome.name, rawPoint);
               if (!found1) continue;
               if (found1.pointDiff > MAX_POINT_DIFF) {
                 logger.warn(
@@ -276,7 +291,20 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
           } else if (market.key === "totals" && outcomes.length === 2) {
             if (bookie.key === sharp.totalsSource.key) continue;
             for (const outcome of outcomes) {
-              const found1 = findNearestSharpEntry(sharp.totals, outcome.name, outcome.point ?? 0);
+              const rawPoint = outcome.point ?? 0;
+              if (!isTotalsPointValid(rawPoint)) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    point: rawPoint,
+                  },
+                  "totals: point value outside valid range — skipping bet",
+                );
+                continue;
+              }
+              const found1 = findNearestSharpEntry(sharp.totals, outcome.name, rawPoint);
               if (!found1) continue;
               if (found1.pointDiff > MAX_POINT_DIFF) {
                 logger.warn(

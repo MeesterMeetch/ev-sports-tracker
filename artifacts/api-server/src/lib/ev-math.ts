@@ -53,6 +53,34 @@ export function breakEvenOddsForEV(estimatedProb: number, targetEvPct: number): 
 export const MAX_POINT_DIFF = 1.5;
 
 /**
+ * Acceptable absolute-value ranges for raw point values.
+ * These catch data errors from the odds API (e.g. a totals line of 300 or a
+ * spread of 50) before they reach the EV calculation, even when both the sharp
+ * and retail books agree on the absurd number (so MAX_POINT_DIFF would pass).
+ */
+export const SPREAD_POINT_RANGE = { min: -30, max: 30 } as const;
+
+/**
+ * Totals lines vary widely by sport:
+ *   - Soccer / Hockey:  ~2–12
+ *   - Baseball:         ~6–14
+ *   - Football:         ~30–70
+ *   - Basketball:       ~150–250 (NBA/NCAAB extremes)
+ * 350 is comfortably above any real-world line while still rejecting API data
+ * errors such as a line of 1 000 or the raw integer that appears when the odds
+ * provider omits the decimal point (e.g. "2225" instead of "222.5").
+ */
+export const TOTALS_POINT_RANGE = { min: 0, max: 350 } as const;
+
+export function isSpreadPointValid(point: number): boolean {
+  return point >= SPREAD_POINT_RANGE.min && point <= SPREAD_POINT_RANGE.max;
+}
+
+export function isTotalsPointValid(point: number): boolean {
+  return point >= TOTALS_POINT_RANGE.min && point <= TOTALS_POINT_RANGE.max;
+}
+
+/**
  * Finds the sharp entry for a given team name and point.
  * Tries exact match first; falls back to the entry with the closest point
  * for the same team name when lines have moved between sharp and retail books.
