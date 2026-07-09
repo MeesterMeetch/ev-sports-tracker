@@ -136,6 +136,68 @@ describe("SharpCoverageBanner", () => {
     });
   });
 
+  describe("zero-coverage warnings", () => {
+    it("shows a red warning for a market that is active in bets and has 0 sharp-line games", () => {
+      render(
+        <SharpCoverageBanner
+          coverage={makeCoverage({ gamesEvaluated: 10, gamesWithSharpSpreads: 0 })}
+          bets={[makeBet("spreads")]}
+        />
+      );
+      const warning = screen.getByTestId("warning-spreads");
+      expect(warning).toBeInTheDocument();
+      expect(warning).toHaveTextContent("No sharp lines");
+      expect(warning).toHaveTextContent("Spreads EV is unreliable for this market");
+    });
+
+    it("zero-coverage warning uses red styling, not amber", () => {
+      render(
+        <SharpCoverageBanner
+          coverage={makeCoverage({ gamesEvaluated: 10, gamesWithSharpH2H: 0 })}
+          bets={[makeBet("h2h")]}
+        />
+      );
+      const warning = screen.getByTestId("warning-h2h");
+      expect(warning).toHaveClass("border-red-500/40");
+      expect(warning).not.toHaveClass("border-amber-500/40");
+    });
+
+    it("zero-coverage copy does not include the low-coverage count phrase", () => {
+      render(
+        <SharpCoverageBanner
+          coverage={makeCoverage({ gamesEvaluated: 10, gamesWithSharpTotals: 0 })}
+          bets={[makeBet("totals")]}
+        />
+      );
+      expect(screen.getByTestId("warning-totals")).not.toHaveTextContent("only");
+    });
+
+    it("does not show a zero-coverage warning when the market is absent from active bets", () => {
+      render(
+        <SharpCoverageBanner
+          coverage={makeCoverage({ gamesEvaluated: 10, gamesWithSharpSpreads: 0 })}
+          bets={[makeBet("h2h")]}
+        />
+      );
+      expect(screen.queryByTestId("warning-spreads")).not.toBeInTheDocument();
+    });
+
+    it("can show both zero-coverage (red) and low-coverage (amber) warnings simultaneously for different markets", () => {
+      render(
+        <SharpCoverageBanner
+          coverage={makeCoverage({ gamesEvaluated: 10, gamesWithSharpH2H: 0, gamesWithSharpSpreads: 3 })}
+          bets={[makeBet("h2h"), makeBet("spreads")]}
+        />
+      );
+      const h2hWarning = screen.getByTestId("warning-h2h");
+      const spreadsWarning = screen.getByTestId("warning-spreads");
+      expect(h2hWarning).toHaveClass("border-red-500/40");
+      expect(h2hWarning).toHaveTextContent("No sharp lines");
+      expect(spreadsWarning).toHaveClass("border-amber-500/40");
+      expect(spreadsWarning).toHaveTextContent("Spreads EV may be unreliable");
+    });
+  });
+
   describe("low-coverage warnings", () => {
     it("shows a warning for a market that is active in bets and has < 50% coverage", () => {
       render(
