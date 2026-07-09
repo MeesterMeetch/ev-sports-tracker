@@ -863,7 +863,7 @@ describe("GET /api/odds/ev-card", () => {
     expect(warnMeta["missingOtherSide"]).toBe("Under");
   });
 
-  it("evaluates totals bets using the nearest sharp line when retail and sharp points differ", async () => {
+  it("skips totals bets when retail and sharp points differ (exact match required)", async () => {
     const gameTotalsMismatch = {
       id: "game-totals-mismatch",
       sport_key: "baseball_mlb",
@@ -908,21 +908,22 @@ describe("GET /api/odds/ev-card", () => {
     );
 
     const res = await supertest(makeTestApp())
-      .get("/api/odds/ev-card")
+      .get("/api/odds/ev-card?minEv=0")
       .expect(200);
 
     const totalsBets = [...res.body.bets, ...res.body.nearMisses].filter(
       (b: { market: string }) => b.market === "totals"
     );
 
-    expect(totalsBets.length).toBeGreaterThan(0);
-    const overBet = totalsBets.find(
-      (b: { selection: string }) => b.selection === "Over 9"
+    // A half point on a total is worth several percent of win probability, so
+    // probabilities must never be borrowed from a different sharp line.
+    expect(totalsBets).toHaveLength(0);
+
+    const skipWarnings = mockLoggerWarn.mock.calls.filter((args: unknown[]) =>
+      typeof args[1] === "string" &&
+      args[1].includes("exact point match required")
     );
-    expect(overBet).toBeDefined();
-    expect(overBet.evPercent).toBeGreaterThan(0);
-    expect(overBet.sharpBook).toBe("LowVig");
-    expect(overBet.point).toBe(9);
+    expect(skipWarnings.length).toBeGreaterThanOrEqual(1);
   });
 
   it("evaluates spread bets using the nearest sharp line when retail and sharp points differ", async () => {
@@ -1049,7 +1050,7 @@ describe("GET /api/odds/ev-card", () => {
     expect(teamAEntry.sharpBook).toBe("LowVig");
   });
 
-  it("does not drop totals bets when retail and sharp points differ by exactly 1.5", async () => {
+  it("drops totals bets when retail and sharp points differ by 1.5 (exact match required)", async () => {
     const gameMaxDiffTotals = {
       id: "game-totals-maxdiff",
       sport_key: "americanfootball_nfl",
@@ -1065,7 +1066,9 @@ describe("GET /api/odds/ev-card", () => {
           markets: [
             {
               key: "totals",
-              // Sharp book posted at 47.5; retail is at 46 (diff = 1.5)
+              // Sharp book posted at 47.5; retail is at 46 (diff = 1.5).
+              // Under the old spread-style tolerance this was evaluated;
+              // totals now require an exact point match.
               outcomes: [
                 { name: "Over", price: -110, point: 47.5 },
                 { name: "Under", price: -110, point: 47.5 },
@@ -1095,20 +1098,13 @@ describe("GET /api/odds/ev-card", () => {
     );
 
     const res = await supertest(makeTestApp())
-      .get("/api/odds/ev-card")
+      .get("/api/odds/ev-card?minEv=0")
       .expect(200);
 
     const allTotals = [...res.body.bets, ...res.body.nearMisses].filter(
       (b: { market: string }) => b.market === "totals"
     );
-    // The bet must be evaluated (not silently dropped), and the retail point retained
-    expect(allTotals.length).toBeGreaterThan(0);
-    const overEntry = allTotals.find(
-      (b: { selection: string }) => b.selection === "Over 46"
-    );
-    expect(overEntry).toBeDefined();
-    expect(overEntry.point).toBe(46);
-    expect(overEntry.sharpBook).toBe("LowVig");
+    expect(allTotals).toHaveLength(0);
   });
 
   it("stays clean (200, no NaN/Infinity) when exactly one retail book provides h2h data", async () => {
@@ -1638,7 +1634,7 @@ describe("GET /api/odds/ev-card – skips bets when pointDiff exceeds MAX_POINT_
     // Verify the skip is explicit (logged), not silent — one warn per skipped side
     const skipWarnings = mockLoggerWarn.mock.calls.filter((args: unknown[]) =>
       typeof args[1] === "string" &&
-      args[1].includes("point diff exceeds MAX_POINT_DIFF")
+      args[1].includes("exact point match required")
     );
     expect(skipWarnings.length).toBeGreaterThanOrEqual(2);
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  dedupeBestPrice,
   americanToDecimal,
   americanToImpliedProb,
   deVig2Way,
@@ -662,5 +663,44 @@ describe("extractSharpLineProbs – spreads / totals cascade", () => {
 
     expect(sharp.spreads.size).toBe(0);
     expect(sharp.spreadsSource.key).toBeNull();
+  });
+});
+
+describe("dedupeBestPrice", () => {
+  const makeBet = (overrides: Partial<{ gameId: string; market: string; selection: string; point: number | null; evPercent: number; bookmaker: string }> = {}) => ({
+    gameId: "g1",
+    market: "totals",
+    selection: "Over 9.5",
+    point: 9.5,
+    evPercent: 5.0,
+    bookmaker: "DraftKings",
+    ...overrides,
+  });
+
+  it("keeps only the best price when the same outcome appears at multiple books", () => {
+    const bets = [
+      makeBet({ bookmaker: "FanDuel", evPercent: 7.62 }),
+      makeBet({ bookmaker: "DraftKings", evPercent: 7.62 }),
+      makeBet({ bookmaker: "BetMGM", evPercent: 8.1 }),
+    ];
+    const result = dedupeBestPrice(bets);
+    expect(result).toHaveLength(1);
+    expect(result[0].bookmaker).toBe("BetMGM");
+    expect(result[0].evPercent).toBe(8.1);
+  });
+
+  it("does not collapse different outcomes, points, markets, or games", () => {
+    const bets = [
+      makeBet({ selection: "Over 9.5", point: 9.5 }),
+      makeBet({ selection: "Under 9.5", point: 9.5 }),
+      makeBet({ selection: "Over 10", point: 10 }),
+      makeBet({ market: "h2h", selection: "TeamA", point: null }),
+      makeBet({ gameId: "g2" }),
+    ];
+    expect(dedupeBestPrice(bets)).toHaveLength(5);
+  });
+
+  it("returns an empty array unchanged", () => {
+    expect(dedupeBestPrice([])).toHaveLength(0);
   });
 });

@@ -12,6 +12,8 @@ import {
   extractSharpLineProbs,
   findNearestSharpEntry,
   MAX_POINT_DIFF,
+  TOTALS_MAX_POINT_DIFF,
+  dedupeBestPrice,
   isSpreadPointValid,
   isTotalsPointValid,
 } from "../lib/ev-math";
@@ -306,7 +308,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
               }
               const found1 = findNearestSharpEntry(sharp.totals, outcome.name, rawPoint);
               if (!found1) continue;
-              if (found1.pointDiff > MAX_POINT_DIFF) {
+              if (found1.pointDiff > TOTALS_MAX_POINT_DIFF) {
                 logger.warn(
                   {
                     game: `${game.home_team} vs ${game.away_team}`,
@@ -315,9 +317,9 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                     retailPoint: outcome.point,
                     sharpPoint: found1.entry.point,
                     pointDiff: found1.pointDiff,
-                    maxAllowed: MAX_POINT_DIFF,
+                    maxAllowed: TOTALS_MAX_POINT_DIFF,
                   },
-                  "totals: point diff exceeds MAX_POINT_DIFF — skipping bet",
+                  "totals: sharp reference is a different line — exact point match required, skipping bet",
                 );
                 continue;
               }
@@ -339,7 +341,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                 );
                 continue;
               }
-              if (found2.pointDiff > MAX_POINT_DIFF) {
+              if (found2.pointDiff > TOTALS_MAX_POINT_DIFF) {
                 logger.warn(
                   {
                     game: `${game.home_team} vs ${game.away_team}`,
@@ -349,28 +351,13 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                     retailPoint: retailOther.point,
                     sharpPoint: found2.entry.point,
                     pointDiff: found2.pointDiff,
-                    maxAllowed: MAX_POINT_DIFF,
+                    maxAllowed: TOTALS_MAX_POINT_DIFF,
                   },
-                  "totals: other-side point diff exceeds MAX_POINT_DIFF — skipping bet",
+                  "totals: other-side sharp reference is a different line — exact point match required, skipping bet",
                 );
                 continue;
               }
               const sharpEntry2 = found2.entry;
-
-              const pointDiff = found1.pointDiff;
-              if (pointDiff > 0) {
-                logger.warn(
-                  {
-                    game: `${game.home_team} vs ${game.away_team}`,
-                    bookie: bookie.key,
-                    selection: outcome.name,
-                    retailPoint: outcome.point,
-                    sharpPoint: sharpEntry.point,
-                    pointDiff,
-                  },
-                  "totals point-line mismatch: using nearest sharp line as fallback",
-                );
-              }
 
               const p1 = americanToImpliedProb(sharpEntry.odds);
               const p2 = americanToImpliedProb(sharpEntry2.odds);
@@ -413,14 +400,20 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
       }
     }
 
-    evBets.sort((a, b) => b.evPercent - a.evPercent);
-    nearMisses.sort((a, b) => b.evPercent - a.evPercent);
+    const dedupedBets = dedupeBestPrice(evBets);
+    const betKeys = new Set(dedupedBets.map((b) => `${b.gameId}|${b.market}|${b.selection}|${b.point}`));
+    const dedupedMisses = dedupeBestPrice(nearMisses).filter(
+      (m) => !betKeys.has(`${m.gameId}|${m.market}|${m.selection}|${m.point}`),
+    );
+
+    dedupedBets.sort((a, b) => b.evPercent - a.evPercent);
+    dedupedMisses.sort((a, b) => b.evPercent - a.evPercent);
 
     res.json({
       date: new Date().toISOString().split("T")[0],
-      bets: evBets,
-      nearMisses: nearMisses.slice(0, 10),
-      hasBets: evBets.length > 0,
+      bets: dedupedBets,
+      nearMisses: dedupedMisses.slice(0, 10),
+      hasBets: dedupedBets.length > 0,
       requestsRemaining,
       quotaExhausted,
       sharpCoverage: {

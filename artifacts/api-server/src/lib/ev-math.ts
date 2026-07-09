@@ -53,6 +53,32 @@ export function breakEvenOddsForEV(estimatedProb: number, targetEvPct: number): 
 export const MAX_POINT_DIFF = 1.5;
 
 /**
+ * Totals require an exact point match against the sharp reference. A half
+ * point on a total shifts win probability by several percent (an MLB Over 9.5
+ * priced off a sharp Over 9 line manufactures phantom EV), so unlike spreads
+ * there is no acceptable tolerance here.
+ */
+export const TOTALS_MAX_POINT_DIFF = 0;
+
+/**
+ * Collapses duplicate rows for the same outcome (same game, market, selection,
+ * and point) across multiple bookmakers, keeping only the best price. Because
+ * every duplicate shares the same no-vig probability, the highest evPercent is
+ * always the best available price.
+ */
+export function dedupeBestPrice<
+  T extends { gameId: string; market: string; selection: string; point: number | null; evPercent: number },
+>(bets: T[]): T[] {
+  const best = new Map<string, T>();
+  for (const bet of bets) {
+    const key = `${bet.gameId}|${bet.market}|${bet.selection}|${bet.point}`;
+    const existing = best.get(key);
+    if (!existing || bet.evPercent > existing.evPercent) best.set(key, bet);
+  }
+  return Array.from(best.values());
+}
+
+/**
  * Acceptable spread point ranges for each sport. Spread lines vary by sport:
  *   - Soccer (Asian handicap): typically ±0.25–±3; rarely exceeds ±4 even in
  *     extreme mismatches, so well within the ±60 global cap.

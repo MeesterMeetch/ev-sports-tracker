@@ -1,0 +1,317 @@
+diff --git a/artifacts/api-server/src/lib/ev-math.test.ts b/artifacts/api-server/src/lib/ev-math.test.ts
+index 3a521a2..46456e5 100644
+--- a/artifacts/api-server/src/lib/ev-math.test.ts
++++ b/artifacts/api-server/src/lib/ev-math.test.ts
+@@ -1,5 +1,6 @@
+ import { describe, it, expect } from "vitest";
+ import {
++  dedupeBestPrice,
+   americanToDecimal,
+   americanToImpliedProb,
+   deVig2Way,
+@@ -664,3 +665,42 @@ describe("extractSharpLineProbs – spreads / totals cascade", () => {
+     expect(sharp.spreadsSource.key).toBeNull();
+   });
+ });
++
++describe("dedupeBestPrice", () => {
++  const makeBet = (overrides: Partial<{ gameId: string; market: string; selection: string; point: number | null; evPercent: number; bookmaker: string }> = {}) => ({
++    gameId: "g1",
++    market: "totals",
++    selection: "Over 9.5",
++    point: 9.5,
++    evPercent: 5.0,
++    bookmaker: "DraftKings",
++    ...overrides,
++  });
++
++  it("keeps only the best price when the same outcome appears at multiple books", () => {
++    const bets = [
++      makeBet({ bookmaker: "FanDuel", evPercent: 7.62 }),
++      makeBet({ bookmaker: "DraftKings", evPercent: 7.62 }),
++      makeBet({ bookmaker: "BetMGM", evPercent: 8.1 }),
++    ];
++    const result = dedupeBestPrice(bets);
++    expect(result).toHaveLength(1);
++    expect(result[0].bookmaker).toBe("BetMGM");
++    expect(result[0].evPercent).toBe(8.1);
++  });
++
++  it("does not collapse different outcomes, points, markets, or games", () => {
++    const bets = [
++      makeBet({ selection: "Over 9.5", point: 9.5 }),
++      makeBet({ selection: "Under 9.5", point: 9.5 }),
++      makeBet({ selection: "Over 10", point: 10 }),
++      makeBet({ market: "h2h", selection: "TeamA", point: null }),
++      makeBet({ gameId: "g2" }),
++    ];
++    expect(dedupeBestPrice(bets)).toHaveLength(5);
++  });
++
++  it("returns an empty array unchanged", () => {
++    expect(dedupeBestPrice([])).toHaveLength(0);
++  });
++});
+diff --git a/artifacts/api-server/src/lib/ev-math.ts b/artifacts/api-server/src/lib/ev-math.ts
+index 045db81..1ec0965 100644
+--- a/artifacts/api-server/src/lib/ev-math.ts
++++ b/artifacts/api-server/src/lib/ev-math.ts
+@@ -52,6 +52,32 @@ export function breakEvenOddsForEV(estimatedProb: number, targetEvPct: number):
+  */
+ export const MAX_POINT_DIFF = 1.5;
+ 
++/**
++ * Totals require an exact point match against the sharp reference. A half
++ * point on a total shifts win probability by several percent (an MLB Over 9.5
++ * priced off a sharp Over 9 line manufactures phantom EV), so unlike spreads
++ * there is no acceptable tolerance here.
++ */
++export const TOTALS_MAX_POINT_DIFF = 0;
++
++/**
++ * Collapses duplicate rows for the same outcome (same game, market, selection,
++ * and point) across multiple bookmakers, keeping only the best price. Because
++ * every duplicate shares the same no-vig probability, the highest evPercent is
++ * always the best available price.
++ */
++export function dedupeBestPrice<
++  T extends { gameId: string; market: string; selection: string; point: number | null; evPercent: number },
++>(bets: T[]): T[] {
++  const best = new Map<string, T>();
++  for (const bet of bets) {
++    const key = `${bet.gameId}|${bet.market}|${bet.selection}|${bet.point}`;
++    const existing = best.get(key);
++    if (!existing || bet.evPercent > existing.evPercent) best.set(key, bet);
++  }
++  return Array.from(best.values());
++}
++
+ /**
+  * Acceptable spread point ranges for each sport. Spread lines vary by sport:
+  *   - Soccer (Asian handicap): typically ±0.25–±3; rarely exceeds ±4 even in
+diff --git a/artifacts/api-server/src/lib/odds.ts b/artifacts/api-server/src/lib/odds.ts
+index 8b6f135..d06c365 100644
+--- a/artifacts/api-server/src/lib/odds.ts
++++ b/artifacts/api-server/src/lib/odds.ts
+@@ -1,7 +1,10 @@
+ import { logger } from "./logger";
+ 
+ const ODDS_API_BASE = "https://api.the-odds-api.com/v4";
+-const API_KEY = process.env.ODDS_API_KEY_V2 ?? process.env.ODDS_API_KEY;
++
++function getApiKey(): string | undefined {
++  return process.env.ODDS_API_KEY_V2 ?? process.env.ODDS_API_KEY;
++}
+ 
+ export interface OddsOutcome {
+   name: string;
+@@ -41,9 +44,10 @@ export interface OddsSport {
+ }
+ 
+ async function oddsApiFetch<T>(path: string, params: Record<string, string> = {}): Promise<{ data: T; requestsRemaining: number | null }> {
+-  if (!API_KEY) throw new Error("ODDS_API_KEY not set");
++  const apiKey = getApiKey();
++  if (!apiKey) throw new Error("ODDS_API_KEY not set");
+   const url = new URL(`${ODDS_API_BASE}${path}`);
+-  url.searchParams.set("apiKey", API_KEY);
++  url.searchParams.set("apiKey", apiKey);
+   for (const [k, v] of Object.entries(params)) {
+     if (v) url.searchParams.set(k, v);
+   }
+diff --git a/artifacts/api-server/src/routes/odds.test.ts b/artifacts/api-server/src/routes/odds.test.ts
+index 1f410b3..e1b69ad 100644
+--- a/artifacts/api-server/src/routes/odds.test.ts
++++ b/artifacts/api-server/src/routes/odds.test.ts
+@@ -863,7 +863,7 @@ describe("GET /api/odds/ev-card", () => {
+     expect(warnMeta["missingOtherSide"]).toBe("Under");
+   });
+ 
+-  it("evaluates totals bets using the nearest sharp line when retail and sharp points differ", async () => {
++  it("skips totals bets when retail and sharp points differ (exact match required)", async () => {
+     const gameTotalsMismatch = {
+       id: "game-totals-mismatch",
+       sport_key: "baseball_mlb",
+@@ -908,21 +908,22 @@ describe("GET /api/odds/ev-card", () => {
+     );
+ 
+     const res = await supertest(makeTestApp())
+-      .get("/api/odds/ev-card")
++      .get("/api/odds/ev-card?minEv=0")
+       .expect(200);
+ 
+     const totalsBets = [...res.body.bets, ...res.body.nearMisses].filter(
+       (b: { market: string }) => b.market === "totals"
+     );
+ 
+-    expect(totalsBets.length).toBeGreaterThan(0);
+-    const overBet = totalsBets.find(
+-      (b: { selection: string }) => b.selection === "Over 9"
++    // A half point on a total is worth several percent of win probability, so
++    // probabilities must never be borrowed from a different sharp line.
++    expect(totalsBets).toHaveLength(0);
++
++    const skipWarnings = mockLoggerWarn.mock.calls.filter((args: unknown[]) =>
++      typeof args[1] === "string" &&
++      args[1].includes("exact point match required")
+     );
+-    expect(overBet).toBeDefined();
+-    expect(overBet.evPercent).toBeGreaterThan(0);
+-    expect(overBet.sharpBook).toBe("LowVig");
+-    expect(overBet.point).toBe(9);
++    expect(skipWarnings.length).toBeGreaterThanOrEqual(1);
+   });
+ 
+   it("evaluates spread bets using the nearest sharp line when retail and sharp points differ", async () => {
+@@ -1049,7 +1050,7 @@ describe("GET /api/odds/ev-card", () => {
+     expect(teamAEntry.sharpBook).toBe("LowVig");
+   });
+ 
+-  it("does not drop totals bets when retail and sharp points differ by exactly 1.5", async () => {
++  it("drops totals bets when retail and sharp points differ by 1.5 (exact match required)", async () => {
+     const gameMaxDiffTotals = {
+       id: "game-totals-maxdiff",
+       sport_key: "americanfootball_nfl",
+@@ -1065,7 +1066,9 @@ describe("GET /api/odds/ev-card", () => {
+           markets: [
+             {
+               key: "totals",
+-              // Sharp book posted at 47.5; retail is at 46 (diff = 1.5)
++              // Sharp book posted at 47.5; retail is at 46 (diff = 1.5).
++              // Under the old spread-style tolerance this was evaluated;
++              // totals now require an exact point match.
+               outcomes: [
+                 { name: "Over", price: -110, point: 47.5 },
+                 { name: "Under", price: -110, point: 47.5 },
+@@ -1095,20 +1098,13 @@ describe("GET /api/odds/ev-card", () => {
+     );
+ 
+     const res = await supertest(makeTestApp())
+-      .get("/api/odds/ev-card")
++      .get("/api/odds/ev-card?minEv=0")
+       .expect(200);
+ 
+     const allTotals = [...res.body.bets, ...res.body.nearMisses].filter(
+       (b: { market: string }) => b.market === "totals"
+     );
+-    // The bet must be evaluated (not silently dropped), and the retail point retained
+-    expect(allTotals.length).toBeGreaterThan(0);
+-    const overEntry = allTotals.find(
+-      (b: { selection: string }) => b.selection === "Over 46"
+-    );
+-    expect(overEntry).toBeDefined();
+-    expect(overEntry.point).toBe(46);
+-    expect(overEntry.sharpBook).toBe("LowVig");
++    expect(allTotals).toHaveLength(0);
+   });
+ 
+   it("stays clean (200, no NaN/Infinity) when exactly one retail book provides h2h data", async () => {
+@@ -1638,7 +1634,7 @@ describe("GET /api/odds/ev-card – skips bets when pointDiff exceeds MAX_POINT_
+     // Verify the skip is explicit (logged), not silent — one warn per skipped side
+     const skipWarnings = mockLoggerWarn.mock.calls.filter((args: unknown[]) =>
+       typeof args[1] === "string" &&
+-      args[1].includes("point diff exceeds MAX_POINT_DIFF")
++      args[1].includes("exact point match required")
+     );
+     expect(skipWarnings.length).toBeGreaterThanOrEqual(2);
+ 
+diff --git a/artifacts/api-server/src/routes/odds.ts b/artifacts/api-server/src/routes/odds.ts
+index 73799d2..ba89085 100644
+--- a/artifacts/api-server/src/routes/odds.ts
++++ b/artifacts/api-server/src/routes/odds.ts
+@@ -12,6 +12,8 @@ import {
+   extractSharpLineProbs,
+   findNearestSharpEntry,
+   MAX_POINT_DIFF,
++  TOTALS_MAX_POINT_DIFF,
++  dedupeBestPrice,
+   isSpreadPointValid,
+   isTotalsPointValid,
+ } from "../lib/ev-math";
+@@ -306,7 +308,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
+               }
+               const found1 = findNearestSharpEntry(sharp.totals, outcome.name, rawPoint);
+               if (!found1) continue;
+-              if (found1.pointDiff > MAX_POINT_DIFF) {
++              if (found1.pointDiff > TOTALS_MAX_POINT_DIFF) {
+                 logger.warn(
+                   {
+                     game: `${game.home_team} vs ${game.away_team}`,
+@@ -315,9 +317,9 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
+                     retailPoint: outcome.point,
+                     sharpPoint: found1.entry.point,
+                     pointDiff: found1.pointDiff,
+-                    maxAllowed: MAX_POINT_DIFF,
++                    maxAllowed: TOTALS_MAX_POINT_DIFF,
+                   },
+-                  "totals: point diff exceeds MAX_POINT_DIFF — skipping bet",
++                  "totals: sharp reference is a different line — exact point match required, skipping bet",
+                 );
+                 continue;
+               }
+@@ -339,7 +341,7 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
+                 );
+                 continue;
+               }
+-              if (found2.pointDiff > MAX_POINT_DIFF) {
++              if (found2.pointDiff > TOTALS_MAX_POINT_DIFF) {
+                 logger.warn(
+                   {
+                     game: `${game.home_team} vs ${game.away_team}`,
+@@ -349,29 +351,14 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
+                     retailPoint: retailOther.point,
+                     sharpPoint: found2.entry.point,
+                     pointDiff: found2.pointDiff,
+-                    maxAllowed: MAX_POINT_DIFF,
++                    maxAllowed: TOTALS_MAX_POINT_DIFF,
+                   },
+-                  "totals: other-side point diff exceeds MAX_POINT_DIFF — skipping bet",
++                  "totals: other-side sharp reference is a different line — exact point match required, skipping bet",
+                 );
+                 continue;
+               }
+               const sharpEntry2 = found2.entry;
+ 
+-              const pointDiff = found1.pointDiff;
+-              if (pointDiff > 0) {
+-                logger.warn(
+-                  {
+-                    game: `${game.home_team} vs ${game.away_team}`,
+-                    bookie: bookie.key,
+-                    selection: outcome.name,
+-                    retailPoint: outcome.point,
+-                    sharpPoint: sharpEntry.point,
+-                    pointDiff,
+-                  },
+-                  "totals point-line mismatch: using nearest sharp line as fallback",
+-                );
+-              }
+-
+               const p1 = americanToImpliedProb(sharpEntry.odds);
+               const p2 = americanToImpliedProb(sharpEntry2.odds);
+               const { p1: nv } = deVig2Way(p1, p2);
+@@ -413,14 +400,20 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
+       }
+     }
+ 
+-    evBets.sort((a, b) => b.evPercent - a.evPercent);
+-    nearMisses.sort((a, b) => b.evPercent - a.evPercent);
++    const dedupedBets = dedupeBestPrice(evBets);
++    const betKeys = new Set(dedupedBets.map((b) => `${b.gameId}|${b.market}|${b.selection}|${b.point}`));
++    const dedupedMisses = dedupeBestPrice(nearMisses).filter(
++      (m) => !betKeys.has(`${m.gameId}|${m.market}|${m.selection}|${m.point}`),
++    );
++
++    dedupedBets.sort((a, b) => b.evPercent - a.evPercent);
++    dedupedMisses.sort((a, b) => b.evPercent - a.evPercent);
+ 
+     res.json({
+       date: new Date().toISOString().split("T")[0],
+-      bets: evBets,
+-      nearMisses: nearMisses.slice(0, 10),
+-      hasBets: evBets.length > 0,
++      bets: dedupedBets,
++      nearMisses: dedupedMisses.slice(0, 10),
++      hasBets: dedupedBets.length > 0,
+       requestsRemaining,
+       quotaExhausted,
+       sharpCoverage: {
