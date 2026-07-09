@@ -412,6 +412,61 @@ test.describe("SharpCoverageBanner — background auto-refresh stability", () =>
   });
 });
 
+const NBA_MIXED_ZERO_AND_LOW_CARD = makeEvCard(
+  {
+    gamesEvaluated: 10,
+    gamesWithSharpH2H: 9,
+    gamesWithSharpSpreads: 0,
+    gamesWithSharpTotals: 3,
+  },
+  [
+    { ...SPREADS_BET },
+    { ...TOTALS_BET, gameId: "nba-game-3", sport: "basketball_nba", homeTeam: "Nuggets", awayTeam: "Mavericks", selection: "Over 215.5" },
+  ],
+);
+
+test.describe("SharpCoverageBanner — mixed zero and low coverage", () => {
+  test.beforeEach(async ({ page }) => {
+    await setupRoutes(page);
+    await page.route("**/api/odds/ev-card**", (route: Route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get("sport") === "basketball_nba") {
+        route.fulfill({ json: NBA_MIXED_ZERO_AND_LOW_CARD });
+      } else {
+        route.fulfill({ json: ALL_SPORTS_CARD });
+      }
+    });
+    await page.goto("/");
+    await page.waitForSelector('[data-testid="select-sport"]', { timeout: 15_000 });
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("red zero-coverage and amber low-coverage warnings appear together for different markets", async ({ page }) => {
+    const sportSelect = page.locator('[data-testid="select-sport"]');
+    await sportSelect.click();
+    await page.getByRole("option", { name: "NBA Basketball", exact: true }).click();
+
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10", { timeout: 10_000 });
+    await expect(page.locator('[data-testid="coverage-totals"]')).toHaveText("3/10");
+
+    const spreadsWarning = page.locator('[data-testid="warning-spreads"]');
+    const totalsWarning = page.locator('[data-testid="warning-totals"]');
+
+    await expect(spreadsWarning).toBeVisible();
+    await expect(spreadsWarning).toHaveClass(/border-red-500/);
+    await expect(spreadsWarning).toContainText("No sharp lines");
+    await expect(spreadsWarning).toContainText("Spreads EV is unreliable for this market");
+
+    await expect(totalsWarning).toBeVisible();
+    await expect(totalsWarning).toHaveClass(/border-amber-500/);
+    await expect(totalsWarning).toContainText("may be unreliable");
+    await expect(totalsWarning).toContainText("only 3 of 10 games had sharp lines");
+    await expect(totalsWarning).not.toContainText("No sharp lines");
+
+    await expect(page.locator('[data-testid="warning-h2h"]')).not.toBeVisible();
+  });
+});
+
 test.describe("SharpCoverageBanner — combined zero coverage", () => {
   test.beforeEach(async ({ page }) => {
     await setupRoutes(page);
