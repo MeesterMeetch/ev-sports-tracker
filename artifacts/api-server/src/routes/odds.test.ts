@@ -1235,6 +1235,83 @@ describe("GET /api/odds/ev-card – skips bets when pointDiff exceeds MAX_POINT_
     expect(warnedSelections).toContain("TeamB");
   });
 
+  it("skips (not crash) all totals bets when both Over and Under independently exceed MAX_POINT_DIFF by different amounts", async () => {
+    // Over:  retail 12.0 vs sharp 9.5 → pointDiff 2.5 (> 1.5)
+    // Under: retail 14.0 vs sharp 9.5 → pointDiff 4.5 (> 1.5)
+    // Both sides exceed the threshold by different magnitudes (asymmetric).
+    // The scan must skip each via the found1 guard on its own iteration and
+    // return 200 with no totals bets or near-misses.
+    const game = {
+      id: "game-totals-both-overdiff",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: -110, point: 9.5 },
+                { name: "Under", price: -110, point: 9.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              // Over retail at 12.0 → diff 2.5 > MAX_POINT_DIFF
+              // Under retail at 14.0 → diff 4.5 > MAX_POINT_DIFF
+              outcomes: [
+                { name: "Over", price: 115, point: 12.0 },
+                { name: "Under", price: -135, point: 14.0 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(makeOddsApiResponse([game]));
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card?minEv=0")
+      .expect(200);
+
+    const totalsBets = res.body.bets.filter(
+      (b: { market: string }) => b.market === "totals"
+    );
+    const totalsNearMisses = res.body.nearMisses.filter(
+      (b: { market: string }) => b.market === "totals"
+    );
+    // Both sides exceed MAX_POINT_DIFF — neither should appear in output
+    expect(totalsBets).toHaveLength(0);
+    expect(totalsNearMisses).toHaveLength(0);
+
+    // Verify the skip is explicit (logged), not silent — one warn per skipped side
+    const skipWarnings = mockLoggerWarn.mock.calls.filter((args: unknown[]) =>
+      typeof args[1] === "string" &&
+      args[1].includes("point diff exceeds MAX_POINT_DIFF")
+    );
+    expect(skipWarnings.length).toBeGreaterThanOrEqual(2);
+
+    const warnedSelections = skipWarnings.map(
+      (args: unknown[]) => (args[0] as { selection: string }).selection
+    );
+    expect(warnedSelections).toContain("Over");
+    expect(warnedSelections).toContain("Under");
+  });
+
   it("still surfaces h2h bets from the same game even when spread/totals are dropped due to point diff", async () => {
     const game = {
       id: "game-mixed-overdiff",
