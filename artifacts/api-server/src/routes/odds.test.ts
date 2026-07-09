@@ -325,6 +325,93 @@ describe("GET /api/odds/ev-card", () => {
     expect(Number.isFinite(fanduelBet.evPercent)).toBe(true);
   });
 
+  it("returns empty bets and nearMisses when all retail books post identical h2h odds", async () => {
+    // When every retail book agrees on -110/-110, the consensus no-vig probability
+    // equals each book's own implied probability, so evPercent is ≤ 0 for every
+    // outcome. The route must return a valid empty shape without crashing and all
+    // intermediate evPercent values that would be computed must be finite.
+    const gameAllIdenticalH2H = {
+      id: "game-all-identical-h2h",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [
+                { name: "TeamA", price: -110 },
+                { name: "TeamB", price: -110 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "fanduel",
+          title: "FanDuel",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [
+                { name: "TeamA", price: -110 },
+                { name: "TeamB", price: -110 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "betmgm",
+          title: "BetMGM",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [
+                { name: "TeamA", price: -110 },
+                { name: "TeamB", price: -110 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameAllIdenticalH2H])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    // Valid response shape
+    expect(res.body).toHaveProperty("bets");
+    expect(res.body).toHaveProperty("nearMisses");
+    expect(res.body).toHaveProperty("hasBets");
+    expect(Array.isArray(res.body.bets)).toBe(true);
+    expect(Array.isArray(res.body.nearMisses)).toBe(true);
+
+    // No EV opportunity — all books agree, so nothing should surface
+    expect(res.body.bets).toHaveLength(0);
+    expect(res.body.nearMisses).toHaveLength(0);
+    expect(res.body.hasBets).toBe(false);
+
+    // Sanity-check the math: -110/-110 symmetric market has evPercent < 0 for both sides
+    const { americanToImpliedProb, deVig2Way, calcEVPercent } = await import("../lib/ev-math");
+    const p = americanToImpliedProb(-110);
+    const { p1: noVigP } = deVig2Way(p, p);
+    const evPct = calcEVPercent(noVigP, -110);
+    expect(Number.isFinite(evPct)).toBe(true);
+    expect(evPct).toBeLessThanOrEqual(0);
+  });
+
   it("surfaces near-misses when EV is positive but below minEv threshold", async () => {
     const gameNearMiss = {
       ...FIXTURE_GAME_LOWVIG,
