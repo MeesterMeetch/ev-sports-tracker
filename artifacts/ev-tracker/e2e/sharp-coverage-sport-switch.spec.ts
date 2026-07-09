@@ -650,6 +650,93 @@ test.describe("SharpCoverageBanner — background auto-refresh error recovery vi
   });
 });
 
+// Inverse beat of the recovery test above: the user clicks Retry while the
+// API is *still* failing. The mock route keeps returning 500s after the
+// initial successful load, so the retry (plus React Query's one retry)
+// settles back into the error state. The error card must remain visible —
+// not a blank screen or a permanent skeleton — and the coverage banner must
+// keep rendering the kept data throughout.
+test.describe("SharpCoverageBanner — Retry while the feed is still down", () => {
+  test("clicking Retry while the API keeps failing re-shows the error card, keeps the coverage banner, and never blanks the screen", async ({ page }) => {
+    await page.clock.install();
+    await setupRoutes(page);
+
+    let nbaRequests = 0;
+    await page.route("**/api/odds/ev-card**", (route: Route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get("sport") === "basketball_nba") {
+        nbaRequests += 1;
+        if (nbaRequests === 1) {
+          // Initial load succeeds: zero-spreads coverage with one bet.
+          route.fulfill({ json: NBA_ZERO_SPREADS_CARD });
+        } else {
+          // Feed stays down for every subsequent request, including the
+          // user-initiated Retry and React Query's automatic retry.
+          route.fulfill({ status: 500, json: { message: "Internal Server Error" } });
+        }
+      } else {
+        route.fulfill({ json: ALL_SPORTS_CARD });
+      }
+    });
+
+    await page.goto("/");
+    await page.waitForSelector('[data-testid="select-sport"]', { timeout: 15_000 });
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toBeVisible({ timeout: 10_000 });
+
+    const sportSelect = page.locator('[data-testid="select-sport"]');
+    await sportSelect.click();
+    await page.getByRole("option", { name: "NBA Basketball", exact: true }).click();
+
+    // Initial NBA load: bet card, zero-spreads coverage, red warning.
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10", { timeout: 10_000 });
+    await expect(page.locator('[data-testid="warning-spreads"]')).toBeVisible();
+    await expect(page.getByText("Celtics @ Lakers")).toBeVisible();
+    expect(nbaRequests).toBe(1);
+
+    // Fast-forward past the 300 s auto-refresh countdown so handleRefresh runs.
+    await page.clock.runFor(301_000);
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+
+    // Advance past the React Query retry delay so the query settles into error.
+    await page.clock.runFor(5_000);
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+
+    // Error card is showing; kept coverage data still renders.
+    const errorCard = page.getByText("Couldn't reach the market feed");
+    await expect(errorCard).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10");
+
+    const requestsBeforeRetry = nbaRequests;
+
+    // The feed is STILL down — click Retry anyway.
+    await page.getByRole("button", { name: "Try again" }).click();
+
+    // A fresh request goes out and fails.
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThan(requestsBeforeRetry);
+
+    // Advance past React Query's retry delay so the second attempt fires and
+    // the retry cycle fully settles back into the error state.
+    await page.clock.runFor(5_000);
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThan(requestsBeforeRetry + 1);
+
+    // The error card is visible again after the failed retry settles —
+    // no blank screen and no bet cards from thin air.
+    await expect(errorCard).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+    await expect(page.getByText("Celtics @ Lakers")).not.toBeVisible();
+
+    // No permanent skeleton state: SkeletonCard renders animate-pulse
+    // placeholders, and none may remain once the retry has settled.
+    await expect(page.locator(".animate-pulse")).toHaveCount(0);
+
+    // The coverage banner still shows the kept data throughout.
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10");
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toHaveText("9/10");
+    await expect(page.locator('[data-testid="warning-spreads"]')).toBeVisible();
+    await expect(page.locator('[data-testid="warning-spreads"]')).toContainText("No sharp lines");
+  });
+});
+
 const NBA_MIXED_ZERO_AND_LOW_CARD = makeEvCard(
   {
     gamesEvaluated: 10,
