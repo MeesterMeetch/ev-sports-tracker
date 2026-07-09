@@ -787,6 +787,13 @@ describe("GET /api/odds/ev-card", () => {
   });
 
   it("skips a totals outcome (not crash) when the sharp book has only one side posted", async () => {
+    // LowVig posts Over only; Under line is missing from the sharp book.
+    // When DraftKings' Over is evaluated: found1 (Over in sharp) exists, but
+    // found2 (Under in sharp) is null — the warn fires and the outcome is skipped.
+    // When DraftKings' Under is evaluated: found1 is null → silent skip.
+    // Net result: no totals bets, no totals near-misses, one explicit warn.
+    mockLoggerWarn.mockClear();
+
     const gameOneSidedTotals = {
       id: "game-one-sided-totals",
       sport_key: "baseball_mlb",
@@ -842,6 +849,18 @@ describe("GET /api/odds/ev-card", () => {
     );
     expect(totalsBets).toHaveLength(0);
     expect(totalsNearMisses).toHaveLength(0);
+
+    // The skip must be explicit (warned), not silent.
+    // Exactly one outcome reaches found2=null (the Over side; Under short-circuits
+    // at found1=null). Verify ≥1 warn with the expected message was emitted.
+    const missingOtherSideWarns = mockLoggerWarn.mock.calls.filter(
+      (args: unknown[]) =>
+        typeof args[1] === "string" &&
+        args[1].includes("sharp book missing other-side outcome")
+    );
+    expect(missingOtherSideWarns.length).toBeGreaterThanOrEqual(1);
+    const warnMeta = missingOtherSideWarns[0]![0] as Record<string, unknown>;
+    expect(warnMeta["missingOtherSide"]).toBe("Under");
   });
 
   it("evaluates totals bets using the nearest sharp line when retail and sharp points differ", async () => {
