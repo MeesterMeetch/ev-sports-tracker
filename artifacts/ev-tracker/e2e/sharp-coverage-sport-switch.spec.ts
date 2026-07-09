@@ -290,6 +290,128 @@ test.describe("SharpCoverageBanner — sport switch", () => {
   });
 });
 
+// The home page auto-refreshes the EV card every 300 s via a countdown
+// interval. These tests fast-forward that timer with Playwright's fake clock
+// to trigger a genuine background refetch (a second route fulfillment) and
+// assert the red zero-coverage warning never flickers away. A MutationObserver
+// installed before the refetch records any removal of the warning node, so
+// even an instantaneous unmount/remount between polls would be caught.
+test.describe("SharpCoverageBanner — background auto-refresh stability", () => {
+  async function armFlickerDetector(page: import("@playwright/test").Page, testId: string) {
+    await page.evaluate((id) => {
+      const w = window as unknown as { __warningRemoved: boolean };
+      w.__warningRemoved = false;
+      const selector = `[data-testid="${id}"]`;
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of Array.from(m.removedNodes)) {
+            if (
+              node instanceof HTMLElement &&
+              (node.matches(selector) || node.querySelector(selector) !== null)
+            ) {
+              w.__warningRemoved = true;
+            }
+          }
+        }
+        if (!document.querySelector(selector)) {
+          w.__warningRemoved = true;
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }, testId);
+  }
+
+  test("warning-spreads stays continuously visible across a background refetch", async ({ page }) => {
+    await page.clock.install();
+    await setupRoutes(page);
+
+    let nbaRequests = 0;
+    await page.route("**/api/odds/ev-card**", (route: Route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get("sport") === "basketball_nba") {
+        nbaRequests += 1;
+        route.fulfill({
+          json: { ...NBA_ZERO_SPREADS_CARD, requestsRemaining: 100 - nbaRequests },
+        });
+      } else {
+        route.fulfill({ json: ALL_SPORTS_CARD });
+      }
+    });
+
+    await page.goto("/");
+    await page.waitForSelector('[data-testid="select-sport"]', { timeout: 15_000 });
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toBeVisible({ timeout: 10_000 });
+
+    const sportSelect = page.locator('[data-testid="select-sport"]');
+    await sportSelect.click();
+    await page.getByRole("option", { name: "NBA Basketball", exact: true }).click();
+
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10", { timeout: 10_000 });
+    await expect(page.locator('[data-testid="warning-spreads"]')).toBeVisible();
+    expect(nbaRequests).toBe(1);
+
+    await armFlickerDetector(page, "warning-spreads");
+
+    // Fast-forward past the 300 s auto-refresh countdown, firing every
+    // interval tick so handleRefresh actually runs.
+    await page.clock.runFor(301_000);
+
+    // Wait for the second (background) fulfillment to land.
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+
+    // Warning must still be there, and must never have been removed mid-cycle.
+    await expect(page.locator('[data-testid="warning-spreads"]')).toBeVisible();
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10");
+    const removed = await page.evaluate(
+      () => (window as unknown as { __warningRemoved: boolean }).__warningRemoved,
+    );
+    expect(removed, "warning-spreads flickered away during background refetch").toBe(false);
+  });
+
+  test("warning-totals stays continuously visible across a background refetch", async ({ page }) => {
+    await page.clock.install();
+    await setupRoutes(page);
+
+    let mlbRequests = 0;
+    await page.route("**/api/odds/ev-card**", (route: Route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get("sport") === "baseball_mlb") {
+        mlbRequests += 1;
+        route.fulfill({
+          json: { ...MLB_ZERO_TOTALS_CARD, requestsRemaining: 100 - mlbRequests },
+        });
+      } else {
+        route.fulfill({ json: ALL_SPORTS_CARD });
+      }
+    });
+
+    await page.goto("/");
+    await page.waitForSelector('[data-testid="select-sport"]', { timeout: 15_000 });
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toBeVisible({ timeout: 10_000 });
+
+    const sportSelect = page.locator('[data-testid="select-sport"]');
+    await sportSelect.click();
+    await page.getByRole("option", { name: "MLB Baseball", exact: true }).click();
+
+    await expect(page.locator('[data-testid="coverage-totals"]')).toHaveText("0/6", { timeout: 10_000 });
+    await expect(page.locator('[data-testid="warning-totals"]')).toBeVisible();
+    expect(mlbRequests).toBe(1);
+
+    await armFlickerDetector(page, "warning-totals");
+
+    await page.clock.runFor(301_000);
+
+    await expect.poll(() => mlbRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+
+    await expect(page.locator('[data-testid="warning-totals"]')).toBeVisible();
+    await expect(page.locator('[data-testid="coverage-totals"]')).toHaveText("0/6");
+    const removed = await page.evaluate(
+      () => (window as unknown as { __warningRemoved: boolean }).__warningRemoved,
+    );
+    expect(removed, "warning-totals flickered away during background refetch").toBe(false);
+  });
+});
+
 test.describe("SharpCoverageBanner — combined zero coverage", () => {
   test.beforeEach(async ({ page }) => {
     await setupRoutes(page);
