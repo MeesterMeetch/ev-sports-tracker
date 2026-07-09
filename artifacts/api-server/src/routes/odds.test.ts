@@ -1162,6 +1162,108 @@ describe("GET /api/odds/ev-card", () => {
       expect(bet.sharpBook).toBe("Consensus");
     }
   });
+
+  it("produces no h2h output (not a crash) when the only retail book has spreads/totals but no h2h market", async () => {
+    // buildConsensusH2H skips bookmakers without an h2h market, returning an
+    // empty consensus map. With no sharp book present either, the h2h scan has
+    // no reference line at all and must silently skip the game — not crash and
+    // not emit garbage h2h entries derived from a missing market.
+    const gameNoH2H = {
+      id: "game-single-book-no-h2h",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: -110, point: -1.5 },
+                { name: "TeamB", price: -110, point: 1.5 },
+              ],
+            },
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: -110, point: 8.5 },
+                { name: "Under", price: -110, point: 8.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(makeOddsApiResponse([gameNoH2H]));
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    // Valid response shape — the route must not crash.
+    expect(res.body).toHaveProperty("bets");
+    expect(res.body).toHaveProperty("nearMisses");
+    expect(Array.isArray(res.body.bets)).toBe(true);
+    expect(Array.isArray(res.body.nearMisses)).toBe(true);
+
+    // Core guarantee: with a single retail book and no valid h2h anywhere,
+    // NO market has a sharp/consensus reference line — the scan must produce
+    // no output at all for this game, across every market.
+    expect(res.body.bets).toHaveLength(0);
+    expect(res.body.nearMisses).toHaveLength(0);
+    expect(res.body.hasBets).toBe(false);
+  });
+
+  it("produces no h2h output (not a crash) when the only retail book's h2h market has the wrong outcome count", async () => {
+    // A malformed h2h market with a single outcome must be skipped by
+    // buildConsensusH2H (it requires exactly two outcomes), leaving no
+    // consensus reference — same silent-skip guarantee as a missing market.
+    const gameMalformedH2H = {
+      id: "game-single-book-one-outcome-h2h",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [{ name: "TeamA", price: -130 }],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameMalformedH2H])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    expect(Array.isArray(res.body.bets)).toBe(true);
+    expect(Array.isArray(res.body.nearMisses)).toBe(true);
+
+    const allEntries = [...res.body.bets, ...res.body.nearMisses];
+    const h2hEntries = allEntries.filter(
+      (b: { market: string }) => b.market === "h2h"
+    );
+    expect(h2hEntries).toHaveLength(0);
+    expect(res.body.hasBets).toBe(res.body.bets.length > 0);
+  });
 });
 
 // ---------------------------------------------------------------------------
