@@ -59,9 +59,11 @@ interface MlbStarterCache {
 }
 
 let _mlbCache: MlbStarterCache | null = null;
+let _mlbLastGoodData: GameStarter[] | null = null;
 
 export function _resetMlbStarterCache(): void {
   _mlbCache = null;
+  _mlbLastGoodData = null;
 }
 
 async function fetchMlbStartersRaw(): Promise<GameStarter[]> {
@@ -127,19 +129,29 @@ async function fetchMlbStarters(): Promise<GameStarter[]> {
     return _mlbCache.data;
   }
 
-  let data: GameStarter[];
+  let freshData: GameStarter[] | null = null;
 
   try {
-    data = await fetchMlbStartersRaw();
+    freshData = await fetchMlbStartersRaw();
   } catch (err) {
     logger.warn({ err }, "Failed to fetch MLB starters");
-    data = [];
   }
 
-  const ttl = data.length === 0 ? MLB_CACHE_ERROR_TTL_MS : MLB_CACHE_TTL_MS;
+  if (freshData !== null && freshData.length > 0) {
+    _mlbLastGoodData = freshData;
+    _mlbCache = { data: freshData, expiresAt: Date.now() + MLB_CACHE_TTL_MS };
+    return freshData;
+  }
 
-  _mlbCache = { data, expiresAt: Date.now() + ttl };
-  return data;
+  if (freshData === null && _mlbLastGoodData !== null) {
+    logger.warn("MLB API fetch failed; serving last-known-good starter data");
+    _mlbCache = { data: _mlbLastGoodData, expiresAt: Date.now() + MLB_CACHE_ERROR_TTL_MS };
+    return _mlbLastGoodData;
+  }
+
+  const fallback = freshData ?? [];
+  _mlbCache = { data: fallback, expiresAt: Date.now() + MLB_CACHE_ERROR_TTL_MS };
+  return fallback;
 }
 
 interface NhlTeam {

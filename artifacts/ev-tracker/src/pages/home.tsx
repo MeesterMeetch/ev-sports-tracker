@@ -261,7 +261,9 @@ export default function Home() {
   const queryClient = useQueryClient();
 
   const { data: sports } = useListSports();
-  const { data: starters = [] } = useListStarters();
+  const { data: starters = [] } = useListStarters({
+    query: { refetchInterval: 5 * 60 * 1000 },
+  });
   const { data: existingBets = [] } = useListBets();
 
   const queryParams = sport !== "all" ? { sport } : {};

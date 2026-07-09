@@ -584,3 +584,167 @@ describe("fetchMlbStarters – cache TTL behaviour", () => {
     expect(mlb[0].homeStarter).toBe("Clayton Kershaw");
   });
 });
+
+describe("fetchMlbStarters – last-known-good fallback during outage", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    _resetMlbStarterCache();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    _resetMlbStarterCache();
+  });
+
+  it("serves last-known-good starters when the API fails after a prior successful fetch", async () => {
+    const game = makeGame({
+      homeName: "New York Yankees",
+      awayName: "Boston Red Sox",
+      homeProbable: "Gerrit Cole",
+      awayProbable: "Chris Sale",
+      homeConfirmed: "Gerrit Cole",
+      awayConfirmed: "Chris Sale",
+    });
+
+    let apiDown = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          if (apiDown) return Promise.reject(new Error("ECONNREFUSED"));
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(mlbResponse([game])) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    const first = await fetchTodayStarters();
+    expect(first.filter((s) => s.sport === "baseball_mlb")).toHaveLength(1);
+
+    apiDown = true;
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+    const duringOutage = await fetchTodayStarters();
+    const mlb = duringOutage.filter((s) => s.sport === "baseball_mlb");
+    expect(mlb).toHaveLength(1);
+    expect(mlb[0].homeStarter).toBe("Gerrit Cole");
+    expect(mlb[0].confirmed).toBe(true);
+  });
+
+  it("still re-fetches within the short error TTL when serving last-known-good (no extra fetches inside the window)", async () => {
+    const game = makeGame({
+      homeName: "New York Yankees",
+      awayName: "Boston Red Sox",
+      homeProbable: "Gerrit Cole",
+      awayProbable: "Chris Sale",
+    });
+
+    let callCount = 0;
+    let apiDown = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          callCount++;
+          if (apiDown) return Promise.reject(new Error("ECONNREFUSED"));
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(mlbResponse([game])) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(1);
+
+    apiDown = true;
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(2);
+
+    vi.advanceTimersByTime(60 * 1000);
+    await fetchTodayStarters();
+    expect(callCount).toBe(2);
+  });
+
+  it("returns fresh starters once the API recovers after the error TTL expires while serving last-known-good", async () => {
+    const oldGame = makeGame({
+      homeName: "New York Yankees",
+      awayName: "Boston Red Sox",
+      homeProbable: "Gerrit Cole",
+      awayProbable: "Chris Sale",
+      homeConfirmed: "Gerrit Cole",
+      awayConfirmed: "Chris Sale",
+    });
+    const newGame = makeGame({
+      homeName: "New York Yankees",
+      awayName: "Boston Red Sox",
+      homeProbable: "Clarke Schmidt",
+      awayProbable: "Chris Sale",
+      homeConfirmed: "Clarke Schmidt",
+      awayConfirmed: "Chris Sale",
+      homeProbableStats: { era: "3.50", whip: "1.12" },
+    });
+
+    let apiDown = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          if (apiDown) return Promise.reject(new Error("ECONNREFUSED"));
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mlbResponse([apiDown ? oldGame : newGame])),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    await fetchTodayStarters();
+
+    apiDown = true;
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    await fetchTodayStarters();
+
+    apiDown = false;
+    vi.advanceTimersByTime(91 * 1000);
+
+    const after = await fetchTodayStarters();
+    const mlb = after.filter((s) => s.sport === "baseball_mlb");
+    expect(mlb).toHaveLength(1);
+    expect(mlb[0].homeStarter).toBe("Clarke Schmidt");
+    expect(mlb[0].confirmed).toBe(true);
+  });
+
+  it("does not fall back to last-known-good when the API returns a 200-but-empty response (explicit no games today)", async () => {
+    const game = makeGame({
+      homeName: "Houston Astros",
+      awayName: "Texas Rangers",
+      homeProbable: "Justin Verlander",
+      awayProbable: "Jacob deGrom",
+    });
+
+    let returnEmpty = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          if (returnEmpty) return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(mlbResponse([game])) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    const first = await fetchTodayStarters();
+    expect(first.filter((s) => s.sport === "baseball_mlb")).toHaveLength(1);
+
+    returnEmpty = true;
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+    const second = await fetchTodayStarters();
+    expect(second.filter((s) => s.sport === "baseball_mlb")).toHaveLength(0);
+  });
+});
