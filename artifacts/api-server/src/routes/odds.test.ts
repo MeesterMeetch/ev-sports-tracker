@@ -15,8 +15,20 @@ vi.mock("../lib/starters", () => ({
   fetchTodayStarters: vi.fn(),
 }));
 
+vi.mock("../lib/logger", () => ({
+  logger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
 import { fetchMultiSportOdds } from "../lib/odds";
 const mockFetchMultiSportOdds = fetchMultiSportOdds as ReturnType<typeof vi.fn>;
+
+import { logger } from "../lib/logger";
+const mockLoggerWarn = logger.warn as ReturnType<typeof vi.fn>;
 
 const futureTime = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
 const recentUpdate = new Date(Date.now() - 2 * 60 * 1000).toISOString();
@@ -830,6 +842,7 @@ describe("GET /api/odds/ev-card", () => {
 describe("GET /api/odds/ev-card – skips bets when pointDiff exceeds MAX_POINT_DIFF", () => {
   beforeEach(() => {
     mockFetchMultiSportOdds.mockReset();
+    mockLoggerWarn.mockReset();
   });
 
   it("drops spread bets (not crash) when retail and sharp points differ by 2.0", async () => {
@@ -1050,6 +1063,82 @@ describe("GET /api/odds/ev-card – skips bets when pointDiff exceeds MAX_POINT_
       (b: { market: string }) => b.market === "totals"
     );
     expect(allTotals).toHaveLength(0);
+  });
+
+  it("skips (not crash) all spread bets when both sides independently exceed MAX_POINT_DIFF by different amounts", async () => {
+    // TeamA: retail -6.0 vs sharp -3.5 → pointDiff 2.5 (> 1.5)
+    // TeamB: retail  8.0 vs sharp  3.5 → pointDiff 4.5 (> 1.5)
+    // Both sides are independently over the threshold with asymmetric diffs —
+    // the scan must skip both via the found1 guard and return 200 with no spread output.
+    const game = {
+      id: "game-spreads-both-overdiff",
+      sport_key: "americanfootball_nfl",
+      sport_title: "NFL",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: -110, point: -3.5 },
+                { name: "TeamB", price: -110, point: 3.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              // TeamA retail at -6.0 → diff 2.5 > MAX_POINT_DIFF
+              // TeamB retail at  8.0 → diff 4.5 > MAX_POINT_DIFF
+              outcomes: [
+                { name: "TeamA", price: 110, point: -6.0 },
+                { name: "TeamB", price: -130, point: 8.0 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(makeOddsApiResponse([game]));
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card?minEv=0")
+      .expect(200);
+
+    const spreadBets = res.body.bets.filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+    const spreadNearMisses = res.body.nearMisses.filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+    // Both sides exceed MAX_POINT_DIFF — neither should appear in output
+    expect(spreadBets).toHaveLength(0);
+    expect(spreadNearMisses).toHaveLength(0);
+
+    // Verify the skip is explicit (logged), not silent — one warn per skipped side
+    const skipWarnings = mockLoggerWarn.mock.calls.filter((args: unknown[]) =>
+      typeof args[1] === "string" &&
+      args[1].includes("point diff exceeds MAX_POINT_DIFF")
+    );
+    expect(skipWarnings.length).toBeGreaterThanOrEqual(2);
+
+    const warnedSelections = skipWarnings.map(
+      (args: unknown[]) => (args[0] as { selection: string }).selection
+    );
+    expect(warnedSelections).toContain("TeamA");
+    expect(warnedSelections).toContain("TeamB");
   });
 
   it("still surfaces h2h bets from the same game even when spread/totals are dropped due to point diff", async () => {
