@@ -1,2 +1,3 @@
 - [EV Tracker architecture](ev-tracker-arch.md) — betting platform: React+Vite frontend at /, Express API at /api, Drizzle+Postgres, Orval codegen from OpenAPI spec.
 - [Tailwind v4 var shorthand](tailwind-v4-var-shorthand.md) — v3 `prop-[--var]` compiles to nothing under v4; use `prop-(--var)`. Broke Select scrolling in stock shadcn components.
+- [GitHub push via connector token](github-push-auth.md) — repo mirrors to private MeesterMeetch/ev-sports-tracker; git push needs Basic x-access-token auth, Bearer fails with a fake username prompt.
