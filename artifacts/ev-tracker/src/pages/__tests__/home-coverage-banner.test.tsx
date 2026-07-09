@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach, createContext, useContext } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React from "react";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -133,7 +133,7 @@ function makeQueryResult<T>(data: T) {
     isSuccess: true,
     refetch: vi.fn().mockResolvedValue({}),
     queryKey: [],
-  };
+  } as unknown;
 }
 
 function makeMutationResult() {

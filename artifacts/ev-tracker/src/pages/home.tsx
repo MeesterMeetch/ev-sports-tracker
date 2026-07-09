@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetEvCard,
   getGetEvCardQueryKey,
+  getListStartersQueryKey,
   useGetNearMisses,
   getGetNearMissesQueryKey,
   useListSports,
@@ -262,7 +263,7 @@ export default function Home() {
 
   const { data: sports } = useListSports();
   const { data: starters = [] } = useListStarters({
-    query: { refetchInterval: 5 * 60 * 1000 },
+    query: { queryKey: getListStartersQueryKey(), refetchInterval: 5 * 60 * 1000 },
   });
   const { data: existingBets = [] } = useListBets();
 

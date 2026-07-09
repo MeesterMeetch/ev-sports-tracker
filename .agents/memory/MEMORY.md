@@ -1,1 +1,2 @@
 - [EV Tracker architecture](ev-tracker-arch.md) — betting platform: React+Vite frontend at /, Express API at /api, Drizzle+Postgres, Orval codegen from OpenAPI spec.
+- [Tailwind v4 var shorthand](tailwind-v4-var-shorthand.md) — v3 `prop-[--var]` compiles to nothing under v4; use `prop-(--var)`. Broke Select scrolling in stock shadcn components.

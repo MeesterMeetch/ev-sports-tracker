@@ -131,7 +131,7 @@ function makeQueryResult<T>(data: T) {
     isSuccess: true,
     refetch: vi.fn().mockResolvedValue({}),
     queryKey: [],
-  };
+  } as unknown;
 }
 
 function makeMutationResult() {
