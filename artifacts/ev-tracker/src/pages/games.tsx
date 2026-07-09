@@ -1,9 +1,17 @@
 import { useState } from "react";
-import { useListGames, useListSports, getListGamesQueryKey, useAnalyzeGame } from "@workspace/api-client-react";
+import {
+  useListGames,
+  useListSports,
+  getListGamesQueryKey,
+  useAnalyzeGame,
+  useListStarters,
+  getListStartersQueryKey,
+} from "@workspace/api-client-react";
 import { formatAmericanOdds, formatSportKey, formatGameTime } from "@/lib/formatters";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { StarterBadge, StarterTbd, findStarter, STARTERS_REFETCH_INTERVAL_MS } from "@/components/starter-badge";
 import { BrainCircuit, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -14,6 +22,9 @@ export default function Games() {
 
   const { toast } = useToast();
   const { data: sports } = useListSports();
+  const { data: starters = [] } = useListStarters({
+    query: { queryKey: getListStartersQueryKey(), refetchInterval: STARTERS_REFETCH_INTERVAL_MS },
+  });
 
   const queryParams = sport !== "all" ? { sport } : {};
   const { data: games, isLoading } = useListGames(queryParams, {
@@ -70,7 +81,17 @@ export default function Games() {
         </div>
       ) : (
         <div className="space-y-6">
-          {games?.map((game) => (
+          {games?.map((game) => {
+            const isStarterSport = game.sport === "baseball_mlb" || game.sport === "icehockey_nhl";
+            const starter = isStarterSport
+              ? findStarter(starters, game.homeTeam, game.awayTeam, game.sport)
+              : null;
+            // The starters feed only covers today's games, so a missing starter
+            // for a future game means "not fetched yet", not "TBD".
+            const isToday =
+              new Date(game.commenceTime).toLocaleDateString("en-CA") ===
+              new Date().toLocaleDateString("en-CA");
+            return (
             <Card key={game.id} className="bg-card border-border overflow-hidden">
               <CardHeader className="bg-secondary/30 pb-4 border-b border-border">
                 <div className="flex justify-between items-start">
@@ -84,6 +105,13 @@ export default function Games() {
                     <CardTitle className="text-lg">
                       {game.awayTeam} @ {game.homeTeam}
                     </CardTitle>
+                    {isStarterSport && (
+                      starter
+                        ? <StarterBadge starter={starter} />
+                        : isToday
+                          ? <StarterTbd sport={game.sport} />
+                          : null
+                    )}
                   </div>
                   <Button
                     variant="outline"
@@ -182,7 +210,8 @@ export default function Games() {
                 </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

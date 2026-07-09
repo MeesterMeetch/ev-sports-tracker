@@ -12,7 +12,7 @@ import {
   useListBets,
   getListBetsQueryKey,
 } from "@workspace/api-client-react";
-import type { EvBet, GameStarter, SharpCoverage } from "@workspace/api-client-react";
+import type { EvBet, SharpCoverage } from "@workspace/api-client-react";
 import {
   formatAmericanOdds,
   formatPercent,
@@ -28,20 +28,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { SaveBetDialog } from "@/components/save-bet-dialog";
 import { SharpCoverageBanner } from "@/components/sharp-coverage-banner";
-import { Star, TrendingUp, AlertTriangle, Check, Plus, RefreshCw, EyeOff, Eye, WifiOff, Mail, Send } from "lucide-react";
+import { StarterBadge, StarterTbd, findStarter, STARTERS_REFETCH_INTERVAL_MS } from "@/components/starter-badge";
+import { Star, TrendingUp, AlertTriangle, Plus, RefreshCw, EyeOff, Eye, WifiOff, Mail, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const REFRESH_SECONDS = 300;
 const EV_SANITY_THRESHOLD = 30;
 const NEAR_MISS_MIN_EV = 2.0;
 
-// Starters (pitchers/goalies) poll faster than the odds scan: the API server's
-// error cache clears 90 s after an upstream outage ends, and polling at 60 s
-// ensures the UI picks up the server's fresh data within that window without a
-// reload. (End-to-end worst case from upstream recovery is ~150 s: up to 90 s
-// of server error-cache remainder plus one 60 s poll cycle.)
-// Cheap: it only hits our own server's in-memory cache, not external APIs.
-export const STARTERS_REFETCH_INTERVAL_MS = 60 * 1000;
+// Re-exported for tests; the constant now lives with the shared badge component.
+export { STARTERS_REFETCH_INTERVAL_MS };
 
 type DateFilter = "all" | "today" | "tonight" | "tomorrow";
 type MarketFilter = "all" | "h2h" | "spreads" | "totals";
@@ -68,19 +64,6 @@ function matchesDateFilter(commenceTime: string, filter: DateFilter): boolean {
   return true;
 }
 
-function normalize(s: string) {
-  return s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
-}
-
-function findStarter(starters: GameStarter[], homeTeam: string, awayTeam: string, sport: string): GameStarter | null {
-  return starters.find((s) => {
-    if (s.sport !== sport) return false;
-    const nh = normalize(s.homeTeam), na = normalize(s.awayTeam);
-    const qh = normalize(homeTeam), qa = normalize(awayTeam);
-    return (nh === qh || nh.includes(qh) || qh.includes(nh)) && (na === qa || na.includes(qa) || qa.includes(na));
-  }) ?? null;
-}
-
 interface BetGroup { best: EvBet; alternates: EvBet[]; }
 
 function groupBets(bets: EvBet[]): BetGroup[] {
@@ -94,80 +77,6 @@ function groupBets(bets: EvBet[]): BetGroup[] {
     const sorted = [...group].sort((a, b) => b.evPercent - a.evPercent);
     return { best: sorted[0], alternates: sorted.slice(1) };
   });
-}
-
-function StarterBadge({ starter }: { starter: GameStarter }) {
-  if (starter.starterType === "goalie") {
-    if (starter.confirmed && (starter.homeStarter || starter.awayStarter)) {
-      const hasBoth = starter.awayStarter && starter.homeStarter;
-      const label = hasBoth
-        ? `${starter.awayStarter} vs. ${starter.homeStarter}`
-        : starter.homeStarter || starter.awayStarter || "";
-      return (
-        <div data-testid="starter-badge" className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-green-500/10 border border-green-500/30 text-green-400 text-xs">
-          <Check className="w-3 h-3 shrink-0" />
-          <span>Starting goalies: {label}</span>
-        </div>
-      );
-    }
-    return (
-      <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
-        <AlertTriangle className="w-3 h-3 shrink-0" />
-        <span>Goalie unconfirmed — check ~30 min before puck drop</span>
-      </div>
-    );
-  }
-  const hasBoth = starter.awayStarter && starter.homeStarter;
-  const label = hasBoth ? `${starter.awayStarter} vs. ${starter.homeStarter}` : starter.homeStarter || starter.awayStarter || "Pitcher TBD";
-  if (label === "Pitcher TBD") {
-    return (
-      <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
-        <AlertTriangle className="w-3 h-3 shrink-0" /><span>Pitcher TBD</span>
-      </div>
-    );
-  }
-  if (starter.confirmed) {
-    const awayStats = (starter.awayStarterEra || starter.awayStarterWhip)
-      ? `ERA ${starter.awayStarterEra ?? "—"} / WHIP ${starter.awayStarterWhip ?? "—"}`
-      : null;
-    const homeStats = (starter.homeStarterEra || starter.homeStarterWhip)
-      ? `ERA ${starter.homeStarterEra ?? "—"} / WHIP ${starter.homeStarterWhip ?? "—"}`
-      : null;
-    return (
-      <div data-testid="starter-badge" className="mt-2 rounded px-2 py-1.5 bg-green-500/10 border border-green-500/30 text-green-400 text-xs space-y-0.5">
-        <div className="flex items-center gap-1">
-          <Check className="w-3 h-3 shrink-0" />
-          <span className="font-medium">Confirmed starters</span>
-        </div>
-        {hasBoth ? (
-          <>
-            <div className="flex flex-wrap items-baseline gap-x-2 pl-4">
-              <span className="opacity-70 shrink-0">Away:</span>
-              <span>{starter.awayStarter}</span>
-              {awayStats && <span className="opacity-60 whitespace-nowrap">{awayStats}</span>}
-            </div>
-            <div className="flex flex-wrap items-baseline gap-x-2 pl-4">
-              <span className="opacity-70 shrink-0">Home:</span>
-              <span>{starter.homeStarter}</span>
-              {homeStats && <span className="opacity-60 whitespace-nowrap">{homeStats}</span>}
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-wrap items-baseline gap-x-2 pl-4">
-            <span>{label}</span>
-            {(awayStats || homeStats) && (
-              <span className="opacity-60 whitespace-nowrap">{awayStats ?? homeStats}</span>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
-      <AlertTriangle className="w-3 h-3 shrink-0" /><span>Probable: {label}</span>
-    </div>
-  );
 }
 
 function StaleBadge() {
@@ -470,10 +379,7 @@ export default function Home() {
                   {showStarter && (
                     starter
                       ? <StarterBadge starter={starter} />
-                      : <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
-                          <AlertTriangle className="w-3 h-3 shrink-0" />
-                          <span>{bet.sport === "baseball_mlb" ? "Pitcher TBD" : "Goalie TBD"}</span>
-                        </div>
+                      : <StarterTbd sport={bet.sport} />
                   )}
                   {isStale && <StaleBadge/>}
                   {!isStale && isOldLine && <FreshnessBadge ageMinutes={bet.lineAgeMinutes!}/>}
