@@ -85,6 +85,11 @@ export default function Tracker() {
 
   const hasBySport = stats?.bySport && stats.bySport.length > 0;
 
+  // Default sort: game time ascending (soonest first).
+  const sortedBets = [...(bets ?? [])].sort(
+    (a, b) => new Date(a.commenceTime).getTime() - new Date(b.commenceTime).getTime(),
+  );
+
   // Chart data: cumulative PnL over time (settled bets only)
   const settledBets = [...(bets ?? [])]
     .filter((b) => b.status !== "pending" && b.pnl != null)
@@ -184,7 +189,7 @@ export default function Tracker() {
                   </td>
                 </tr>
               ) : (
-                bets?.map((bet) => (
+                sortedBets.map((bet) => (
                   <tr key={bet.id} className="border-b border-border/50 hover:bg-secondary/20 group">
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                       {new Date(bet.commenceTime).toLocaleDateString(undefined, { month: "short", day: "numeric" })}

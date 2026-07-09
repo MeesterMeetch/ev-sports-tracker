@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export default function Games() {
   const [sport, setSport] = useState<string>("all");
-  const [analyzingGame, setAnalyzingGame] = useState<string | null>(null);
+  const [analyzingGames, setAnalyzingGames] = useState<Set<string>>(new Set());
   const [analysisResults, setAnalysisResults] = useState<Record<string, string>>({});
 
   const { toast } = useToast();
@@ -35,21 +35,35 @@ export default function Games() {
     mutation: {
       onSuccess: (data) => {
         setAnalysisResults((prev) => ({ ...prev, [data.gameId]: data.analysis }));
-        setAnalyzingGame(null);
       },
       onError: () => {
         toast({ title: "Analysis failed", variant: "destructive" });
-        setAnalyzingGame(null);
       },
     },
   });
 
   const handleAnalyze = (gameId: string, homeTeam: string, awayTeam: string, sportKey: string) => {
-    setAnalyzingGame(gameId);
-    analyzeGame.mutate({ data: { gameId, homeTeam, awayTeam, sport: sportKey } });
+    setAnalyzingGames((prev) => new Set(prev).add(gameId));
+    analyzeGame.mutate(
+      { data: { gameId, homeTeam, awayTeam, sport: sportKey } },
+      {
+        onSettled: () => {
+          setAnalyzingGames((prev) => {
+            const next = new Set(prev);
+            next.delete(gameId);
+            return next;
+          });
+        },
+      },
+    );
   };
 
   const activeSports = sports?.filter((s) => s.active) || [];
+
+  // Default sort: game time ascending (soonest first).
+  const sortedGames = games
+    ? [...games].sort((a, b) => new Date(a.commenceTime).getTime() - new Date(b.commenceTime).getTime())
+    : undefined;
 
   return (
     <div className="space-y-6">
@@ -81,7 +95,7 @@ export default function Games() {
         </div>
       ) : (
         <div className="space-y-6">
-          {games?.map((game) => {
+          {sortedGames?.map((game) => {
             const isStarterSport = game.sport === "baseball_mlb" || game.sport === "icehockey_nhl";
             const starter = isStarterSport
               ? findStarter(starters, game.homeTeam, game.awayTeam, game.sport)
@@ -118,9 +132,9 @@ export default function Games() {
                     size="sm"
                     className="bg-background"
                     onClick={() => handleAnalyze(game.id, game.homeTeam, game.awayTeam, game.sport)}
-                    disabled={analyzingGame === game.id}
+                    disabled={analyzingGames.has(game.id)}
                   >
-                    {analyzingGame === game.id ? (
+                    {analyzingGames.has(game.id) ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
                       <BrainCircuit className="h-4 w-4 mr-2 text-primary" />

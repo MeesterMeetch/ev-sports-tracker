@@ -11,6 +11,7 @@ import {
   useCreateBet,
   useListBets,
   getListBetsQueryKey,
+  useAnalyzeGame,
 } from "@workspace/api-client-react";
 import type { EvBet, SharpCoverage } from "@workspace/api-client-react";
 import {
@@ -29,7 +30,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { SaveBetDialog } from "@/components/save-bet-dialog";
 import { SharpCoverageBanner } from "@/components/sharp-coverage-banner";
 import { StarterBadge, StarterTbd, findStarter, STARTERS_REFETCH_INTERVAL_MS } from "@/components/starter-badge";
-import { Star, TrendingUp, AlertTriangle, Plus, RefreshCw, EyeOff, Eye, WifiOff, Mail, Send } from "lucide-react";
+import { Star, TrendingUp, AlertTriangle, Plus, RefreshCw, EyeOff, Eye, WifiOff, Mail, Send, BrainCircuit, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const REFRESH_SECONDS = 300;
@@ -175,6 +176,8 @@ export default function Home() {
   const [digestOpen, setDigestOpen] = useState(false);
   const [digestEmail, setDigestEmail] = useState("");
   const [digestSending, setDigestSending] = useState(false);
+  const [analyzingGames, setAnalyzingGames] = useState<Set<string>>(new Set());
+  const [analysisResults, setAnalysisResults] = useState<Record<string, string>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -217,6 +220,33 @@ export default function Home() {
     },
   });
 
+  const analyzeGame = useAnalyzeGame({
+    mutation: {
+      onSuccess: (data) => {
+        setAnalysisResults((prev) => ({ ...prev, [data.gameId]: data.analysis }));
+      },
+      onError: () => {
+        toast({ title: "Analysis failed", variant: "destructive" });
+      },
+    },
+  });
+
+  const handleAnalyze = (bet: EvBet) => {
+    setAnalyzingGames((prev) => new Set(prev).add(bet.gameId));
+    analyzeGame.mutate(
+      { data: { gameId: bet.gameId, homeTeam: bet.homeTeam, awayTeam: bet.awayTeam, sport: bet.sport, market: bet.market } },
+      {
+        onSettled: () => {
+          setAnalyzingGames((prev) => {
+            const next = new Set(prev);
+            next.delete(bet.gameId);
+            return next;
+          });
+        },
+      },
+    );
+  };
+
   const handleConfirmSave = (units: number) => {
     if (!pendingBet) return;
     createBet.mutate({ data: { gameId: pendingBet.gameId, homeTeam: pendingBet.homeTeam, awayTeam: pendingBet.awayTeam, sport: pendingBet.sport, market: pendingBet.market, selection: pendingBet.selection, point: pendingBet.point ?? null, bookmaker: pendingBet.bookmaker, americanOdds: pendingBet.americanOdds, evPercent: pendingBet.evPercent, units, commenceTime: pendingBet.commenceTime } });
@@ -252,9 +282,16 @@ export default function Home() {
   const allGroups = groupBets(marketBets);
   const staleCount = allGroups.filter(({ best }) => best.evPercent > EV_SANITY_THRESHOLD).length;
   const nonStaleGroups = hideStale ? allGroups.filter(({ best }) => best.evPercent <= EV_SANITY_THRESHOLD) : allGroups;
-  const betGroups = bookFilter === "all" ? nonStaleGroups : nonStaleGroups.filter(({ best }) => best.bookmaker === bookFilter);
+  const filteredGroups = bookFilter === "all" ? nonStaleGroups : nonStaleGroups.filter(({ best }) => best.bookmaker === bookFilter);
+  // Default sort: game time ascending (soonest first); ties broken by EV descending.
+  const betGroups = [...filteredGroups].sort((a, b) => {
+    const dt = new Date(a.best.commenceTime).getTime() - new Date(b.best.commenceTime).getTime();
+    return dt !== 0 ? dt : b.best.evPercent - a.best.evPercent;
+  });
   const availableBooks = Array.from(new Set(allBets.map(b => b.bookmaker))).sort();
-  const filteredNearMisses = (nearMisses ?? []).filter(m => matchesDateFilter(m.commenceTime, dateFilter));
+  const filteredNearMisses = (nearMisses ?? [])
+    .filter(m => matchesDateFilter(m.commenceTime, dateFilter))
+    .sort((a, b) => new Date(a.commenceTime).getTime() - new Date(b.commenceTime).getTime());
 
   const mins = Math.floor(countdown / 60);
   const secs = countdown % 60;
@@ -429,9 +466,24 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-                  <Button className="w-full" onClick={() => setPendingBet(bet)} disabled={createBet.isPending} data-testid={`button-track-${bet.gameId}`}>
-                    <Plus className="w-4 h-4 mr-2"/>Save to Tracker
-                  </Button>
+                  <div>
+                    {analysisResults[bet.gameId] && (
+                      <div className="bg-primary/5 border border-primary/20 rounded p-3 text-xs leading-relaxed whitespace-pre-wrap mb-3" data-testid={`analysis-${bet.gameId}`}>
+                        <div className="flex items-center gap-2 text-primary font-bold mb-1.5">
+                          <BrainCircuit className="h-3.5 w-3.5" /> AI Analysis
+                        </div>
+                        {analysisResults[bet.gameId]}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Button className="flex-1" onClick={() => setPendingBet(bet)} disabled={createBet.isPending} data-testid={`button-track-${bet.gameId}`}>
+                        <Plus className="w-4 h-4 mr-2"/>Save to Tracker
+                      </Button>
+                      <Button variant="outline" size="icon" onClick={() => handleAnalyze(bet)} disabled={analyzingGames.has(bet.gameId)} title="AI Analysis" data-testid={`button-analyze-${bet.gameId}`}>
+                        {analyzingGames.has(bet.gameId) ? <Loader2 className="w-4 h-4 animate-spin"/> : <BrainCircuit className="w-4 h-4 text-primary"/>}
+                      </Button>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             );
