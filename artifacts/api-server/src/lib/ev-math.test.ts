@@ -546,9 +546,9 @@ describe("findNearestSharpEntry – pointDiff vs MAX_POINT_DIFF", () => {
 // ---------------------------------------------------------------------------
 
 describe("SPREAD_POINT_RANGE / TOTALS_POINT_RANGE constants", () => {
-  it("spread range is [-30, 30]", () => {
-    expect(SPREAD_POINT_RANGE.min).toBe(-30);
-    expect(SPREAD_POINT_RANGE.max).toBe(30);
+  it("spread range is [-60, 60]", () => {
+    expect(SPREAD_POINT_RANGE.min).toBe(-60);
+    expect(SPREAD_POINT_RANGE.max).toBe(60);
   });
 
   it("totals range is [0, 350]", () => {
@@ -558,33 +558,42 @@ describe("SPREAD_POINT_RANGE / TOTALS_POINT_RANGE constants", () => {
 });
 
 describe("isSpreadPointValid", () => {
-  it("accepts typical spread values within the range", () => {
+  it("accepts typical small-spread sports (hockey puck line ±1.5, soccer Asian handicap ±2)", () => {
+    expect(isSpreadPointValid(-1.5)).toBe(true);
+    expect(isSpreadPointValid(1.5)).toBe(true);
     expect(isSpreadPointValid(-3.5)).toBe(true);
     expect(isSpreadPointValid(3.5)).toBe(true);
     expect(isSpreadPointValid(0)).toBe(true);
-    expect(isSpreadPointValid(-29.5)).toBe(true);
-    expect(isSpreadPointValid(29.5)).toBe(true);
   });
 
-  it("accepts boundary values exactly at -30 and 30", () => {
-    expect(isSpreadPointValid(-30)).toBe(true);
-    expect(isSpreadPointValid(30)).toBe(true);
+  it("accepts typical NFL/NBA spreads up to ±28", () => {
+    expect(isSpreadPointValid(-28)).toBe(true);
+    expect(isSpreadPointValid(28)).toBe(true);
   });
 
-  it("rejects a spread of 50 (absurd data-error value)", () => {
-    expect(isSpreadPointValid(50)).toBe(false);
+  it("accepts NCAAF spreads that can legitimately reach ±45–±55", () => {
+    expect(isSpreadPointValid(-45.5)).toBe(true);
+    expect(isSpreadPointValid(45.5)).toBe(true);
+    expect(isSpreadPointValid(-55)).toBe(true);
+    expect(isSpreadPointValid(55)).toBe(true);
   });
 
-  it("rejects a spread of -50 (absurd data-error value)", () => {
-    expect(isSpreadPointValid(-50)).toBe(false);
+  it("accepts boundary values exactly at -60 and 60", () => {
+    expect(isSpreadPointValid(-60)).toBe(true);
+    expect(isSpreadPointValid(60)).toBe(true);
   });
 
-  it("rejects a spread of 31 (just outside the max)", () => {
-    expect(isSpreadPointValid(31)).toBe(false);
+  it("rejects a spread of 61 (just outside the max)", () => {
+    expect(isSpreadPointValid(61)).toBe(false);
   });
 
-  it("rejects a spread of -31 (just outside the min)", () => {
-    expect(isSpreadPointValid(-31)).toBe(false);
+  it("rejects a spread of -61 (just outside the min)", () => {
+    expect(isSpreadPointValid(-61)).toBe(false);
+  });
+
+  it("rejects absurd data-error values like 155 (raw integer missing decimal point)", () => {
+    expect(isSpreadPointValid(155)).toBe(false);
+    expect(isSpreadPointValid(-155)).toBe(false);
   });
 });
 

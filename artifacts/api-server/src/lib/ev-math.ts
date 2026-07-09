@@ -53,12 +53,23 @@ export function breakEvenOddsForEV(estimatedProb: number, targetEvPct: number): 
 export const MAX_POINT_DIFF = 1.5;
 
 /**
- * Acceptable absolute-value ranges for raw point values.
- * These catch data errors from the odds API (e.g. a totals line of 300 or a
- * spread of 50) before they reach the EV calculation, even when both the sharp
- * and retail books agree on the absurd number (so MAX_POINT_DIFF would pass).
+ * Acceptable spread point ranges for each sport. Spread lines vary by sport:
+ *   - Soccer (Asian handicap): typically ±0.25–±3; rarely exceeds ±4 even in
+ *     extreme mismatches, so well within the ±60 global cap.
+ *   - Hockey (puck line):      always ±1.5; well within any reasonable bound.
+ *   - Baseball (run line):     always ±1.5; well within any reasonable bound.
+ *   - NFL:                     typically ±1–±28; largest historical lines ~±28.
+ *   - NBA / WNBA:              typically ±1–±25.
+ *   - NCAAF:                   can reach ±45–±55 when a power program hosts a
+ *     lower-division opponent; -60/+60 covers all realistic cases.
+ *   - NCAAB:                   similar to NCAAF; ±40 at most.
+ *
+ * ±60 is the global cap — comfortably above every real-world line while still
+ * catching API data errors (e.g. a raw integer "155" instead of "1.5").
+ * Do NOT tighten this range: hockey/soccer lines near ±1.5 are valid and must
+ * not be silently rejected, and NCAAF lines near ±50 are equally legitimate.
  */
-export const SPREAD_POINT_RANGE = { min: -30, max: 30 } as const;
+export const SPREAD_POINT_RANGE = { min: -60, max: 60 } as const;
 
 /**
  * Totals lines vary widely by sport:
