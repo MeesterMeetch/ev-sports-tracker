@@ -124,6 +124,10 @@ export const ListStartersResponseItem = zod.object({
   "sport": zod.string(),
   "homeStarter": zod.string().nullish(),
   "awayStarter": zod.string().nullish(),
+  "homeStarterEra": zod.string().nullish().describe('Season ERA for the home starting pitcher (MLB only)'),
+  "homeStarterWhip": zod.string().nullish().describe('Season WHIP for the home starting pitcher (MLB only)'),
+  "awayStarterEra": zod.string().nullish().describe('Season ERA for the away starting pitcher (MLB only)'),
+  "awayStarterWhip": zod.string().nullish().describe('Season WHIP for the away starting pitcher (MLB only)'),
   "starterType": zod.string().describe('pitcher | goalie'),
   "confirmed": zod.boolean()
 })

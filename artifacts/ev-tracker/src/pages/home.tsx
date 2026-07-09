@@ -118,9 +118,39 @@ function StarterBadge({ starter }: { starter: GameStarter }) {
     );
   }
   if (starter.confirmed) {
+    const awayStats = (starter.awayStarterEra || starter.awayStarterWhip)
+      ? `ERA ${starter.awayStarterEra ?? "—"} / WHIP ${starter.awayStarterWhip ?? "—"}`
+      : null;
+    const homeStats = (starter.homeStarterEra || starter.homeStarterWhip)
+      ? `ERA ${starter.homeStarterEra ?? "—"} / WHIP ${starter.homeStarterWhip ?? "—"}`
+      : null;
     return (
-      <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-green-500/10 border border-green-500/30 text-green-400 text-xs">
-        <Check className="w-3 h-3 shrink-0" /><span>Confirmed SP: {label}</span>
+      <div className="mt-2 rounded px-2 py-1.5 bg-green-500/10 border border-green-500/30 text-green-400 text-xs space-y-0.5">
+        <div className="flex items-center gap-1">
+          <Check className="w-3 h-3 shrink-0" />
+          <span className="font-medium">Confirmed starters</span>
+        </div>
+        {hasBoth ? (
+          <>
+            <div className="flex flex-wrap items-baseline gap-x-2 pl-4">
+              <span className="opacity-70 shrink-0">Away:</span>
+              <span>{starter.awayStarter}</span>
+              {awayStats && <span className="opacity-60 whitespace-nowrap">{awayStats}</span>}
+            </div>
+            <div className="flex flex-wrap items-baseline gap-x-2 pl-4">
+              <span className="opacity-70 shrink-0">Home:</span>
+              <span>{starter.homeStarter}</span>
+              {homeStats && <span className="opacity-60 whitespace-nowrap">{homeStats}</span>}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-wrap items-baseline gap-x-2 pl-4">
+            <span>{label}</span>
+            {(awayStats || homeStats) && (
+              <span className="opacity-60 whitespace-nowrap">{awayStats ?? homeStats}</span>
+            )}
+          </div>
+        )}
       </div>
     );
   }

@@ -6,6 +6,10 @@ export interface GameStarter {
   sport: string;
   homeStarter: string | null;
   awayStarter: string | null;
+  homeStarterEra: string | null;
+  homeStarterWhip: string | null;
+  awayStarterEra: string | null;
+  awayStarterWhip: string | null;
   starterType: string;
   confirmed: boolean;
 }
@@ -20,9 +24,35 @@ function teamsMatch(a: string, b: string): boolean {
   return na === nb || na.includes(nb) || nb.includes(na);
 }
 
+interface MlbPitcherStats {
+  era: string | null;
+  whip: string | null;
+}
+
+interface MlbProbablePitcher {
+  fullName: string;
+  stats?: Array<{
+    type?: { displayName?: string };
+    group?: { displayName?: string };
+    splits?: Array<{ stat?: { era?: string; whip?: string } }>;
+  }>;
+}
+
+function extractPitcherStats(pitcher: MlbProbablePitcher | undefined): MlbPitcherStats {
+  if (!pitcher) return { era: null, whip: null };
+  const seasonStats = pitcher.stats?.find(
+    (s) => s.type?.displayName === "season" && s.group?.displayName === "pitching"
+  );
+  const stat = seasonStats?.splits?.[0]?.stat;
+  return {
+    era: stat?.era ?? null,
+    whip: stat?.whip ?? null,
+  };
+}
+
 async function fetchMlbStarters(): Promise<GameStarter[]> {
   const today = new Date().toLocaleDateString("en-CA");
-  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher(note),lineups`;
+  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher(stats(type=season,group=pitching)),lineups`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) throw new Error(`MLB API ${res.status}`);
@@ -30,8 +60,8 @@ async function fetchMlbStarters(): Promise<GameStarter[]> {
       dates: Array<{
         games: Array<{
           teams: {
-            away: { team: { name: string }; probablePitcher?: { fullName: string } };
-            home: { team: { name: string }; probablePitcher?: { fullName: string } };
+            away: { team: { name: string }; probablePitcher?: MlbProbablePitcher };
+            home: { team: { name: string }; probablePitcher?: MlbProbablePitcher };
           };
           lineups?: {
             homePitchers?: Array<{ person: { fullName: string } }>;
@@ -47,12 +77,30 @@ async function fetchMlbStarters(): Promise<GameStarter[]> {
         const confirmedHome = game.lineups?.homePitchers?.[0]?.person.fullName ?? null;
         const confirmedAway = game.lineups?.awayPitchers?.[0]?.person.fullName ?? null;
         const confirmed = confirmedHome !== null || confirmedAway !== null;
+
+        const homeProb = game.teams.home.probablePitcher;
+        const awayProb = game.teams.away.probablePitcher;
+
+        const homeStarterName = confirmedHome ?? homeProb?.fullName ?? null;
+        const awayStarterName = confirmedAway ?? awayProb?.fullName ?? null;
+
+        const homeStats = confirmedHome === null || confirmedHome === homeProb?.fullName
+          ? extractPitcherStats(homeProb)
+          : { era: null, whip: null };
+        const awayStats = confirmedAway === null || confirmedAway === awayProb?.fullName
+          ? extractPitcherStats(awayProb)
+          : { era: null, whip: null };
+
         starters.push({
           homeTeam: game.teams.home.team.name,
           awayTeam: game.teams.away.team.name,
           sport: "baseball_mlb",
-          homeStarter: confirmedHome ?? game.teams.home.probablePitcher?.fullName ?? null,
-          awayStarter: confirmedAway ?? game.teams.away.probablePitcher?.fullName ?? null,
+          homeStarter: homeStarterName,
+          awayStarter: awayStarterName,
+          homeStarterEra: confirmed ? homeStats.era : null,
+          homeStarterWhip: confirmed ? homeStats.whip : null,
+          awayStarterEra: confirmed ? awayStats.era : null,
+          awayStarterWhip: confirmed ? awayStats.whip : null,
           starterType: "pitcher",
           confirmed,
         });
@@ -145,6 +193,10 @@ async function fetchNhlGames(): Promise<GameStarter[]> {
         sport: "icehockey_nhl",
         homeStarter: bs?.homeStarter ?? null,
         awayStarter: bs?.awayStarter ?? null,
+        homeStarterEra: null,
+        homeStarterWhip: null,
+        awayStarterEra: null,
+        awayStarterWhip: null,
         starterType: "goalie",
         confirmed: bs?.confirmed ?? false,
       };

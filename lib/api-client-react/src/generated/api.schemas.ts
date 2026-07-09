@@ -13,6 +13,26 @@ export interface GameStarter {
   homeStarter?: string | null;
   /** @nullable */
   awayStarter?: string | null;
+  /**
+     * Season ERA for the home starting pitcher (MLB only)
+     * @nullable
+     */
+  homeStarterEra?: string | null;
+  /**
+     * Season WHIP for the home starting pitcher (MLB only)
+     * @nullable
+     */
+  homeStarterWhip?: string | null;
+  /**
+     * Season ERA for the away starting pitcher (MLB only)
+     * @nullable
+     */
+  awayStarterEra?: string | null;
+  /**
+     * Season WHIP for the away starting pitcher (MLB only)
+     * @nullable
+     */
+  awayStarterWhip?: string | null;
   /** pitcher | goalie */
   starterType: string;
   confirmed: boolean;

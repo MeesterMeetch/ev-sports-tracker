@@ -399,6 +399,18 @@ components:
           type: ["string", "null"]
         awayStarter:
           type: ["string", "null"]
+        homeStarterEra:
+          type: ["string", "null"]
+          description: "Season ERA for the home starting pitcher (MLB only)"
+        homeStarterWhip:
+          type: ["string", "null"]
+          description: "Season WHIP for the home starting pitcher (MLB only)"
+        awayStarterEra:
+          type: ["string", "null"]
+          description: "Season ERA for the away starting pitcher (MLB only)"
+        awayStarterWhip:
+          type: ["string", "null"]
+          description: "Season WHIP for the away starting pitcher (MLB only)"
         starterType:
           type: string
           description: "pitcher | goalie"
