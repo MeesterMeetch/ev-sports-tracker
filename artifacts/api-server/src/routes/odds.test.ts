@@ -412,6 +412,83 @@ describe("GET /api/odds/ev-card", () => {
     expect(evPct).toBeLessThanOrEqual(0);
   });
 
+  it("returns empty bets and nearMisses when all retail books post the same lopsided h2h odds", async () => {
+    // Unlike the symmetric -110/-110 case, a lopsided -150/+130 market gives the
+    // two sides unequal weight in the consensus de-vig calculation. When every
+    // retail book agrees on the same lopsided line, the consensus equals each
+    // book's own de-vigged probabilities, so both sides are ≤ 0 EV (the vig).
+    // The route must return a clean empty shape without crashing.
+    const lopsidedH2HMarket = {
+      key: "h2h",
+      outcomes: [
+        { name: "TeamA", price: -150 },
+        { name: "TeamB", price: 130 },
+      ],
+    };
+    const gameAllLopsidedH2H = {
+      id: "game-all-lopsided-h2h",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [lopsidedH2HMarket],
+        },
+        {
+          key: "fanduel",
+          title: "FanDuel",
+          last_update: recentUpdate,
+          markets: [lopsidedH2HMarket],
+        },
+        {
+          key: "betmgm",
+          title: "BetMGM",
+          last_update: recentUpdate,
+          markets: [lopsidedH2HMarket],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameAllLopsidedH2H])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    // Valid response shape
+    expect(res.body).toHaveProperty("bets");
+    expect(res.body).toHaveProperty("nearMisses");
+    expect(res.body).toHaveProperty("hasBets");
+    expect(Array.isArray(res.body.bets)).toBe(true);
+    expect(Array.isArray(res.body.nearMisses)).toBe(true);
+
+    // No EV opportunity — all books agree on the lopsided line, nothing surfaces
+    expect(res.body.bets).toHaveLength(0);
+    expect(res.body.nearMisses).toHaveLength(0);
+    expect(res.body.hasBets).toBe(false);
+
+    // Sanity-check the math for BOTH sides of the asymmetric market: the
+    // favorite (-150) and the underdog (+130) must each be finite and ≤ 0 EV
+    // against the consensus their own prices create.
+    const { americanToImpliedProb, deVig2Way, calcEVPercent } = await import("../lib/ev-math");
+    const pFav = americanToImpliedProb(-150);
+    const pDog = americanToImpliedProb(130);
+    const { p1: noVigFav, p2: noVigDog } = deVig2Way(pFav, pDog);
+    const evFav = calcEVPercent(noVigFav, -150);
+    const evDog = calcEVPercent(noVigDog, 130);
+    expect(Number.isFinite(evFav)).toBe(true);
+    expect(evFav).toBeLessThanOrEqual(0);
+    expect(Number.isFinite(evDog)).toBe(true);
+    expect(evDog).toBeLessThanOrEqual(0);
+  });
+
   it("surfaces near-misses when EV is positive but below minEv threshold", async () => {
     const gameNearMiss = {
       ...FIXTURE_GAME_LOWVIG,
