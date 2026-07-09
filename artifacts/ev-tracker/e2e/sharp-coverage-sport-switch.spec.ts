@@ -412,6 +412,148 @@ test.describe("SharpCoverageBanner — background auto-refresh stability", () =>
   });
 });
 
+// Sibling case to the auto-refresh stability tests above: the 300 s
+// auto-refresh fires but the background /api/odds/ev-card request *fails*
+// (HTTP 500 or a network abort). React Query keeps the previous data, so the
+// red zero-coverage warning must remain visible alongside the error UI. The
+// ev-card query uses retry: 1, so each failed refetch is attempted twice; the
+// fake clock is advanced past the retry delay so the query actually settles
+// into its error state before we assert.
+test.describe("SharpCoverageBanner — background auto-refresh error resilience", () => {
+  async function armFlickerDetector(page: import("@playwright/test").Page, testId: string) {
+    await page.evaluate((id) => {
+      const w = window as unknown as { __warningRemoved: boolean };
+      w.__warningRemoved = false;
+      const selector = `[data-testid="${id}"]`;
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of Array.from(m.removedNodes)) {
+            if (
+              node instanceof HTMLElement &&
+              (node.matches(selector) || node.querySelector(selector) !== null)
+            ) {
+              w.__warningRemoved = true;
+            }
+          }
+        }
+        if (!document.querySelector(selector)) {
+          w.__warningRemoved = true;
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }, testId);
+  }
+
+  test("warning-spreads stays visible when the background refetch returns a 500", async ({ page }) => {
+    await page.clock.install();
+    await setupRoutes(page);
+
+    let nbaRequests = 0;
+    await page.route("**/api/odds/ev-card**", (route: Route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get("sport") === "basketball_nba") {
+        nbaRequests += 1;
+        if (nbaRequests === 1) {
+          route.fulfill({ json: NBA_ZERO_SPREADS_CARD });
+        } else {
+          route.fulfill({ status: 500, json: { message: "Internal Server Error" } });
+        }
+      } else {
+        route.fulfill({ json: ALL_SPORTS_CARD });
+      }
+    });
+
+    await page.goto("/");
+    await page.waitForSelector('[data-testid="select-sport"]', { timeout: 15_000 });
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toBeVisible({ timeout: 10_000 });
+
+    const sportSelect = page.locator('[data-testid="select-sport"]');
+    await sportSelect.click();
+    await page.getByRole("option", { name: "NBA Basketball", exact: true }).click();
+
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10", { timeout: 10_000 });
+    await expect(page.locator('[data-testid="warning-spreads"]')).toBeVisible();
+    expect(nbaRequests).toBe(1);
+
+    await armFlickerDetector(page, "warning-spreads");
+
+    // Fast-forward past the 300 s auto-refresh countdown so handleRefresh runs.
+    await page.clock.runFor(301_000);
+
+    // Wait for the failed background fulfillment to land.
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+
+    // The ev-card query retries once; advance the fake clock past the retry
+    // delay so the retry fires and the query settles into its error state.
+    await page.clock.runFor(5_000);
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+
+    // Error UI appears in the bet-card area...
+    await expect(page.getByText("Couldn't reach the market feed")).toBeVisible({ timeout: 10_000 });
+
+    // ...but the red zero-coverage warning is still rendered from kept data,
+    // and was never removed at any point during the failed refetch cycle.
+    await expect(page.locator('[data-testid="warning-spreads"]')).toBeVisible();
+    await expect(page.locator('[data-testid="warning-spreads"]')).toContainText("No sharp lines");
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10");
+    const removed = await page.evaluate(
+      () => (window as unknown as { __warningRemoved: boolean }).__warningRemoved,
+    );
+    expect(removed, "warning-spreads flickered away during failed background refetch").toBe(false);
+  });
+
+  test("warning-totals stays visible when the background refetch aborts (network error)", async ({ page }) => {
+    await page.clock.install();
+    await setupRoutes(page);
+
+    let mlbRequests = 0;
+    await page.route("**/api/odds/ev-card**", (route: Route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get("sport") === "baseball_mlb") {
+        mlbRequests += 1;
+        if (mlbRequests === 1) {
+          route.fulfill({ json: MLB_ZERO_TOTALS_CARD });
+        } else {
+          route.abort("connectionfailed");
+        }
+      } else {
+        route.fulfill({ json: ALL_SPORTS_CARD });
+      }
+    });
+
+    await page.goto("/");
+    await page.waitForSelector('[data-testid="select-sport"]', { timeout: 15_000 });
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toBeVisible({ timeout: 10_000 });
+
+    const sportSelect = page.locator('[data-testid="select-sport"]');
+    await sportSelect.click();
+    await page.getByRole("option", { name: "MLB Baseball", exact: true }).click();
+
+    await expect(page.locator('[data-testid="coverage-totals"]')).toHaveText("0/6", { timeout: 10_000 });
+    await expect(page.locator('[data-testid="warning-totals"]')).toBeVisible();
+    expect(mlbRequests).toBe(1);
+
+    await armFlickerDetector(page, "warning-totals");
+
+    await page.clock.runFor(301_000);
+
+    await expect.poll(() => mlbRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+
+    await page.clock.runFor(5_000);
+    await expect.poll(() => mlbRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+
+    await expect(page.getByText("Couldn't reach the market feed")).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.locator('[data-testid="warning-totals"]')).toBeVisible();
+    await expect(page.locator('[data-testid="warning-totals"]')).toContainText("No sharp lines");
+    await expect(page.locator('[data-testid="coverage-totals"]')).toHaveText("0/6");
+    const removed = await page.evaluate(
+      () => (window as unknown as { __warningRemoved: boolean }).__warningRemoved,
+    );
+    expect(removed, "warning-totals flickered away during failed background refetch").toBe(false);
+  });
+});
+
 const NBA_MIXED_ZERO_AND_LOW_CARD = makeEvCard(
   {
     gamesEvaluated: 10,
