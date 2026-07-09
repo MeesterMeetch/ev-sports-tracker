@@ -302,3 +302,130 @@ describe("StarterBadge – ERA/WHIP display when MLB Stats API is slow or unavai
     expect(screen.getByText(/ERA — \/ WHIP 1\.15/)).toBeInTheDocument();
   });
 });
+
+describe("StarterBadge – partial starters during mid-outage recovery", () => {
+  const useGetEvCard = vi.mocked(apiClient.useGetEvCard);
+  const useGetNearMisses = vi.mocked(apiClient.useGetNearMisses);
+  const useListSports = vi.mocked(apiClient.useListSports);
+  const useListStarters = vi.mocked(apiClient.useListStarters);
+  const useCreateBet = vi.mocked(apiClient.useCreateBet);
+  const useListBets = vi.mocked(apiClient.useListBets);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    useListSports.mockReturnValue(
+      makeQueryResult([
+        { key: "baseball_mlb", title: "MLB Baseball", active: true },
+      ]) as ReturnType<typeof apiClient.useListSports>,
+    );
+    useListBets.mockReturnValue(
+      makeQueryResult([]) as ReturnType<typeof apiClient.useListBets>,
+    );
+    useCreateBet.mockReturnValue(
+      makeMutationResult() as ReturnType<typeof apiClient.useCreateBet>,
+    );
+    useGetNearMisses.mockReturnValue(
+      makeQueryResult([]) as ReturnType<typeof apiClient.useGetNearMisses>,
+    );
+    useGetEvCard.mockReturnValue(
+      makeQueryResult(makeEvCardResponse([makeBet()])) as ReturnType<typeof apiClient.useGetEvCard>,
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  function renderHomeRerenderable() {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const makeElement = () => (
+      <QueryClientProvider client={queryClient}>
+        <Home />
+      </QueryClientProvider>
+    );
+    const result = render(makeElement());
+    // A fresh element per rerender is required: reusing the same element
+    // reference lets React bail out of re-rendering <Home />, so the updated
+    // useListStarters mock would never be picked up.
+    return { ...result, rerenderHome: () => result.rerender(makeElement()) };
+  }
+
+  it("outage → partial recovery (away only) shows Probable with one name, then full recovery restores Confirmed starters", () => {
+    // Phase 1 — outage: MLB API is down, no starters returned at all.
+    useListStarters.mockReturnValue(
+      makeQueryResult([]) as ReturnType<typeof apiClient.useListStarters>,
+    );
+    const { rerenderHome } = renderHomeRerenderable();
+
+    expect(screen.getByText("Pitcher TBD")).toBeInTheDocument();
+    expect(screen.queryByText(/Probable:/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Confirmed starters")).not.toBeInTheDocument();
+
+    // Phase 2 — partial recovery: the API is back but only the away starter
+    // is populated so far; the lineup is not yet confirmed.
+    useListStarters.mockReturnValue(
+      makeQueryResult([
+        makeStarter({ homeStarter: null, awayStarter: "Chris Sale", confirmed: false }),
+      ]) as ReturnType<typeof apiClient.useListStarters>,
+    );
+    rerenderHome();
+
+    const probable = screen.getByText(/Probable:/);
+    expect(probable.textContent).toBe("Probable: Chris Sale");
+    expect(probable.textContent).not.toMatch(/vs\./);
+    expect(probable.textContent).not.toMatch(/undefined|null|NaN/);
+    expect(screen.queryByText("Pitcher TBD")).not.toBeInTheDocument();
+    expect(screen.queryByText("Confirmed starters")).not.toBeInTheDocument();
+
+    // Phase 3 — full recovery: both starters present and confirmed.
+    useListStarters.mockReturnValue(
+      makeQueryResult([makeStarter({ confirmed: true })]) as ReturnType<
+        typeof apiClient.useListStarters
+      >,
+    );
+    rerenderHome();
+
+    expect(screen.getByText("Confirmed starters")).toBeInTheDocument();
+    expect(screen.getByText("Chris Sale")).toBeInTheDocument();
+    expect(screen.getByText("Gerrit Cole")).toBeInTheDocument();
+    expect(screen.queryByText(/Probable:/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Pitcher TBD")).not.toBeInTheDocument();
+  });
+
+  it("partial recovery with only the home starter shows Probable with just that name", () => {
+    useListStarters.mockReturnValue(
+      makeQueryResult([
+        makeStarter({ homeStarter: "Gerrit Cole", awayStarter: null, confirmed: false }),
+      ]) as ReturnType<typeof apiClient.useListStarters>,
+    );
+
+    renderHome();
+
+    const probable = screen.getByText(/Probable:/);
+    expect(probable.textContent).toBe("Probable: Gerrit Cole");
+    expect(probable.textContent).not.toMatch(/vs\./);
+    expect(probable.textContent).not.toMatch(/undefined|null|NaN/);
+    expect(screen.queryByText("Pitcher TBD")).not.toBeInTheDocument();
+  });
+
+  it("partial data marked confirmed renders the confirmed badge with a single name and no dangling separator", () => {
+    // Edge case: the upstream feed flags the lineup confirmed while one
+    // starter field is still missing mid-recovery.
+    useListStarters.mockReturnValue(
+      makeQueryResult([
+        makeStarter({ homeStarter: null, awayStarter: "Chris Sale", confirmed: true }),
+      ]) as ReturnType<typeof apiClient.useListStarters>,
+    );
+
+    renderHome();
+
+    expect(screen.getByText("Confirmed starters")).toBeInTheDocument();
+    expect(screen.getByText("Chris Sale")).toBeInTheDocument();
+    expect(screen.queryByText(/vs\./)).not.toBeInTheDocument();
+    expect(screen.queryByText(/undefined|null|NaN/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Pitcher TBD")).not.toBeInTheDocument();
+  });
+});
