@@ -927,6 +927,58 @@ describe("GET /api/odds/ev-card", () => {
     expect(overEntry.point).toBe(46);
     expect(overEntry.sharpBook).toBe("LowVig");
   });
+
+  it("stays clean (200, no NaN/Infinity) when exactly one retail book provides h2h data", async () => {
+    // buildConsensusH2H must handle n=1 without crashing or producing NaN/Infinity.
+    // With a single book the consensus equals its own de-vigged probabilities, so
+    // no outcome will be +EV vs the reference it creates — but the response shape
+    // must still be valid and sharpBook must be "Consensus".
+    const gameSingleBook = {
+      id: "game-single-retail-h2h",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [
+                { name: "TeamA", price: -130 },
+                { name: "TeamB", price: 110 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameSingleBook])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    expect(res.body).toHaveProperty("bets");
+    expect(res.body).toHaveProperty("nearMisses");
+    expect(Array.isArray(res.body.bets)).toBe(true);
+    expect(Array.isArray(res.body.nearMisses)).toBe(true);
+
+    // Core guarantee: no NaN or Infinity evPercent values regardless of bet count.
+    const allBets = [...res.body.bets, ...res.body.nearMisses];
+    for (const bet of allBets) {
+      expect(Number.isFinite(bet.evPercent)).toBe(true);
+      expect(bet.evPercent).not.toBeNaN();
+      expect(bet.sharpBook).toBe("Consensus");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
