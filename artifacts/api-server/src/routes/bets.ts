@@ -145,8 +145,9 @@ router.get("/bets/stats", async (_req, res): Promise<void> => {
   const pending = bets.filter((b) => b.status === "pending").length;
 
   const totalUnitsWagered = bets.reduce((sum, b) => sum + parseFloat(b.units), 0);
+  const settledUnitsWagered = settled.reduce((sum, b) => sum + parseFloat(b.units), 0);
   const totalPnl = settled.reduce((sum, b) => sum + (b.pnl != null ? parseFloat(b.pnl) : 0), 0);
-  const roi = totalUnitsWagered > 0 ? (totalPnl / totalUnitsWagered) * 100 : 0;
+  const roi = settledUnitsWagered > 0 ? (totalPnl / settledUnitsWagered) * 100 : 0;
   const winRate = settled.length > 0 ? wins / settled.length : 0;
 
   const sportMap = new Map<string, { bets: number; wins: number; pnl: number; wagered: number }>();
@@ -154,7 +155,7 @@ router.get("/bets/stats", async (_req, res): Promise<void> => {
     if (!sportMap.has(b.sport)) sportMap.set(b.sport, { bets: 0, wins: 0, pnl: 0, wagered: 0 });
     const s = sportMap.get(b.sport)!;
     s.bets++;
-    s.wagered += parseFloat(b.units);
+    if (b.status !== "pending") s.wagered += parseFloat(b.units);
     if (b.status === "won") s.wins++;
     if (b.pnl != null) s.pnl += parseFloat(b.pnl);
   }

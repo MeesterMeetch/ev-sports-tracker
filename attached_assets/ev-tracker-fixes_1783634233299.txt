@@ -1,0 +1,49 @@
+diff --git a/artifacts/api-server/src/lib/ev-math.ts b/artifacts/api-server/src/lib/ev-math.ts
+index 92fd13d..045db81 100644
+--- a/artifacts/api-server/src/lib/ev-math.ts
++++ b/artifacts/api-server/src/lib/ev-math.ts
+@@ -136,6 +136,7 @@ export interface SharpLines {
+ type Bookmaker = { key: string; markets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point?: number }> }> };
+ 
+ const SHARP_BOOKS: Array<{ key: string; label: string }> = [
++  { key: "pinnacle", label: "Pinnacle" },
+   { key: "lowvig", label: "LowVig" },
+   { key: "betonlineag", label: "BetOnline" },
+ ];
+diff --git a/artifacts/api-server/src/lib/odds.ts b/artifacts/api-server/src/lib/odds.ts
+index 3d0e17c..8b6f135 100644
+--- a/artifacts/api-server/src/lib/odds.ts
++++ b/artifacts/api-server/src/lib/odds.ts
+@@ -68,7 +68,7 @@ export async function fetchOdds(sportKey: string, markets = "h2h,spreads,totals"
+     markets,
+     oddsFormat: "american",
+     dateFormat: "iso",
+-    bookmakers: "pinnacle,draftkings,fanduel,betmgm,caesars,pointsbet",
++    bookmakers: "pinnacle,lowvig,betonlineag,draftkings,fanduel,betmgm,caesars,pointsbet",
+   });
+ }
+ 
+diff --git a/artifacts/api-server/src/routes/bets.ts b/artifacts/api-server/src/routes/bets.ts
+index fa16883..3e924fb 100644
+--- a/artifacts/api-server/src/routes/bets.ts
++++ b/artifacts/api-server/src/routes/bets.ts
+@@ -145,8 +145,9 @@ router.get("/bets/stats", async (_req, res): Promise<void> => {
+   const pending = bets.filter((b) => b.status === "pending").length;
+ 
+   const totalUnitsWagered = bets.reduce((sum, b) => sum + parseFloat(b.units), 0);
++  const settledUnitsWagered = settled.reduce((sum, b) => sum + parseFloat(b.units), 0);
+   const totalPnl = settled.reduce((sum, b) => sum + (b.pnl != null ? parseFloat(b.pnl) : 0), 0);
+-  const roi = totalUnitsWagered > 0 ? (totalPnl / totalUnitsWagered) * 100 : 0;
++  const roi = settledUnitsWagered > 0 ? (totalPnl / settledUnitsWagered) * 100 : 0;
+   const winRate = settled.length > 0 ? wins / settled.length : 0;
+ 
+   const sportMap = new Map<string, { bets: number; wins: number; pnl: number; wagered: number }>();
+@@ -154,7 +155,7 @@ router.get("/bets/stats", async (_req, res): Promise<void> => {
+     if (!sportMap.has(b.sport)) sportMap.set(b.sport, { bets: 0, wins: 0, pnl: 0, wagered: 0 });
+     const s = sportMap.get(b.sport)!;
+     s.bets++;
+-    s.wagered += parseFloat(b.units);
++    if (b.status !== "pending") s.wagered += parseFloat(b.units);
+     if (b.status === "won") s.wins++;
+     if (b.pnl != null) s.pnl += parseFloat(b.pnl);
+   }

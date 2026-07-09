@@ -68,7 +68,7 @@ export async function fetchOdds(sportKey: string, markets = "h2h,spreads,totals"
     markets,
     oddsFormat: "american",
     dateFormat: "iso",
-    bookmakers: "pinnacle,draftkings,fanduel,betmgm,caesars,pointsbet",
+    bookmakers: "pinnacle,lowvig,betonlineag,draftkings,fanduel,betmgm,caesars,pointsbet",
   });
 }
 

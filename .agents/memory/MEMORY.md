@@ -1,3 +1,4 @@
 - [EV Tracker architecture](ev-tracker-arch.md) — betting platform: React+Vite frontend at /, Express API at /api, Drizzle+Postgres, Orval codegen from OpenAPI spec.
+- [Sharp book cascade](sharp-book-cascade.md) — sharp cascade is Pinnacle → LowVig → BetOnline → Consensus (July 2026 fix); every SHARP_BOOKS key must also be in the fetchOdds bookmakers param or it's silently never fetched.
 - [Tailwind v4 var shorthand](tailwind-v4-var-shorthand.md) — v3 `prop-[--var]` compiles to nothing under v4; use `prop-(--var)`. Broke Select scrolling in stock shadcn components.
 - [GitHub push via connector token](github-push-auth.md) — repo mirrors to private MeesterMeetch/ev-sports-tracker; git push needs Basic x-access-token auth, Bearer fails with a fake username prompt.

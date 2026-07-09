@@ -136,6 +136,7 @@ export interface SharpLines {
 type Bookmaker = { key: string; markets: Array<{ key: string; outcomes: Array<{ name: string; price: number; point?: number }> }> };
 
 const SHARP_BOOKS: Array<{ key: string; label: string }> = [
+  { key: "pinnacle", label: "Pinnacle" },
   { key: "lowvig", label: "LowVig" },
   { key: "betonlineag", label: "BetOnline" },
 ];
