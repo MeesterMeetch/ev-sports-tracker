@@ -154,6 +154,22 @@ async function fetchMlbStarters(): Promise<GameStarter[]> {
   return fallback;
 }
 
+const NHL_CACHE_TTL_MS = 5 * 60 * 1000;
+const NHL_CACHE_ERROR_TTL_MS = 90 * 1000;
+
+interface NhlStarterCache {
+  data: GameStarter[];
+  expiresAt: number;
+}
+
+let _nhlCache: NhlStarterCache | null = null;
+let _nhlLastGoodData: GameStarter[] | null = null;
+
+export function _resetNhlStarterCache(): void {
+  _nhlCache = null;
+  _nhlLastGoodData = null;
+}
+
 interface NhlTeam {
   name?: { default?: string };
   commonName?: { default?: string };
@@ -198,54 +214,79 @@ async function fetchNhlBoxscore(gameId: number): Promise<NhlBoxscoreGoalies | nu
   }
 }
 
-async function fetchNhlGames(): Promise<GameStarter[]> {
+async function fetchNhlGamesRaw(): Promise<GameStarter[]> {
   const url = "https://api-web.nhle.com/v1/schedule/now";
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error(`NHL API ${res.status}`);
-    const json = (await res.json()) as {
-      gameWeek: Array<{
-        games: Array<{
-          id: number;
-          awayTeam: NhlTeam;
-          homeTeam: NhlTeam;
-        }>;
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`NHL API ${res.status}`);
+  const json = (await res.json()) as {
+    gameWeek: Array<{
+      games: Array<{
+        id: number;
+        awayTeam: NhlTeam;
+        homeTeam: NhlTeam;
       }>;
-    };
+    }>;
+  };
 
-    const games: Array<{ id: number; homeTeam: string; awayTeam: string }> = [];
-    for (const week of json.gameWeek ?? []) {
-      for (const game of week.games ?? []) {
-        games.push({
-          id: game.id,
-          homeTeam: getNhlTeamName(game.homeTeam),
-          awayTeam: getNhlTeamName(game.awayTeam),
-        });
-      }
+  const games: Array<{ id: number; homeTeam: string; awayTeam: string }> = [];
+  for (const week of json.gameWeek ?? []) {
+    for (const game of week.games ?? []) {
+      games.push({
+        id: game.id,
+        homeTeam: getNhlTeamName(game.homeTeam),
+        awayTeam: getNhlTeamName(game.awayTeam),
+      });
     }
+  }
 
-    const boxscores = await Promise.all(games.map((g) => fetchNhlBoxscore(g.id)));
+  const boxscores = await Promise.all(games.map((g) => fetchNhlBoxscore(g.id)));
 
-    return games.map((game, i) => {
-      const bs = boxscores[i];
-      return {
-        homeTeam: game.homeTeam,
-        awayTeam: game.awayTeam,
-        sport: "icehockey_nhl",
-        homeStarter: bs?.homeStarter ?? null,
-        awayStarter: bs?.awayStarter ?? null,
-        homeStarterEra: null,
-        homeStarterWhip: null,
-        awayStarterEra: null,
-        awayStarterWhip: null,
-        starterType: "goalie",
-        confirmed: bs?.confirmed ?? false,
-      };
-    });
+  return games.map((game, i) => {
+    const bs = boxscores[i];
+    return {
+      homeTeam: game.homeTeam,
+      awayTeam: game.awayTeam,
+      sport: "icehockey_nhl",
+      homeStarter: bs?.homeStarter ?? null,
+      awayStarter: bs?.awayStarter ?? null,
+      homeStarterEra: null,
+      homeStarterWhip: null,
+      awayStarterEra: null,
+      awayStarterWhip: null,
+      starterType: "goalie",
+      confirmed: bs?.confirmed ?? false,
+    };
+  });
+}
+
+async function fetchNhlGames(): Promise<GameStarter[]> {
+  if (_nhlCache && Date.now() < _nhlCache.expiresAt) {
+    return _nhlCache.data;
+  }
+
+  let freshData: GameStarter[] | null = null;
+
+  try {
+    freshData = await fetchNhlGamesRaw();
   } catch (err) {
     logger.warn({ err }, "Failed to fetch NHL schedule");
-    return [];
   }
+
+  if (freshData !== null && freshData.length > 0) {
+    _nhlLastGoodData = freshData;
+    _nhlCache = { data: freshData, expiresAt: Date.now() + NHL_CACHE_TTL_MS };
+    return freshData;
+  }
+
+  if (freshData === null && _nhlLastGoodData !== null) {
+    logger.warn("NHL API fetch failed; serving last-known-good starter data");
+    _nhlCache = { data: _nhlLastGoodData, expiresAt: Date.now() + NHL_CACHE_ERROR_TTL_MS };
+    return _nhlLastGoodData;
+  }
+
+  const fallback = freshData ?? [];
+  _nhlCache = { data: fallback, expiresAt: Date.now() + NHL_CACHE_ERROR_TTL_MS };
+  return fallback;
 }
 
 export async function fetchTodayStarters(): Promise<GameStarter[]> {

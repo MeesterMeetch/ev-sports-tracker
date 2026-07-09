@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchTodayStarters, _resetMlbStarterCache } from "./starters";
+import { fetchTodayStarters, _resetMlbStarterCache, _resetNhlStarterCache } from "./starters";
 
 const TODAY = new Date().toLocaleDateString("en-CA");
 
@@ -746,5 +746,403 @@ describe("fetchMlbStarters – last-known-good fallback during outage", () => {
 
     const second = await fetchTodayStarters();
     expect(second.filter((s) => s.sport === "baseball_mlb")).toHaveLength(0);
+  });
+});
+
+function nhlScheduleResponse(games: Array<{ id: number; homeTeam: object; awayTeam: object }>) {
+  return { gameWeek: [{ games }] };
+}
+
+function makeNhlGame(opts: { id: number; homeName: string; awayName: string }) {
+  return {
+    id: opts.id,
+    homeTeam: { name: { default: opts.homeName } },
+    awayTeam: { name: { default: opts.awayName } },
+  };
+}
+
+function makeNhlBoxscore(homeStarter: string | null, awayStarter: string | null) {
+  return {
+    playerByGameStats: {
+      homeTeam: {
+        goalies: homeStarter ? [{ name: { default: homeStarter }, starter: true }] : [],
+      },
+      awayTeam: {
+        goalies: awayStarter ? [{ name: { default: awayStarter }, starter: true }] : [],
+      },
+    },
+  };
+}
+
+function mockNhlFetch(
+  scheduleBody: object,
+  boxscoreBody: object = makeNhlBoxscore(null, null),
+) {
+  return vi.fn((url: string) => {
+    const urlStr = String(url);
+    if (urlStr.includes("statsapi.mlb.com")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+    }
+    if (urlStr.includes("schedule/now")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(scheduleBody) });
+    }
+    if (urlStr.includes("boxscore")) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(boxscoreBody) });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+  });
+}
+
+describe("fetchNhlGames – cache TTL behaviour", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    _resetMlbStarterCache();
+    _resetNhlStarterCache();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    _resetMlbStarterCache();
+    _resetNhlStarterCache();
+  });
+
+  it("caches a successful non-empty response and does not re-fetch within the normal TTL", async () => {
+    const schedule = nhlScheduleResponse([makeNhlGame({ id: 1, homeName: "Toronto Maple Leafs", awayName: "Boston Bruins" })]);
+    const fetchMock = mockNhlFetch(schedule, makeNhlBoxscore("Ilya Samsonov", "Jeremy Swayman"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchTodayStarters();
+    const scheduleCallCount = () =>
+      fetchMock.mock.calls.filter((c) => String(c[0]).includes("schedule/now")).length;
+
+    expect(scheduleCallCount()).toBe(1);
+
+    vi.advanceTimersByTime(4 * 60 * 1000);
+    await fetchTodayStarters();
+
+    expect(scheduleCallCount()).toBe(1);
+  });
+
+  it("re-fetches after the normal 5-minute TTL expires for a successful response", async () => {
+    const schedule = nhlScheduleResponse([makeNhlGame({ id: 1, homeName: "Toronto Maple Leafs", awayName: "Boston Bruins" })]);
+    const fetchMock = mockNhlFetch(schedule, makeNhlBoxscore("Ilya Samsonov", "Jeremy Swayman"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchTodayStarters();
+
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    await fetchTodayStarters();
+
+    const scheduleCallCount = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes("schedule/now")
+    ).length;
+    expect(scheduleCallCount).toBe(2);
+  });
+
+  it("uses a short 90-second TTL when the NHL API returns an error, not the full 5-minute TTL", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const urlStr = String(url);
+        if (urlStr.includes("statsapi.mlb.com")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+        }
+        if (urlStr.includes("schedule/now")) {
+          callCount++;
+          return Promise.resolve({ ok: false, status: 503 });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(1);
+
+    vi.advanceTimersByTime(91 * 1000);
+    await fetchTodayStarters();
+    expect(callCount).toBe(2);
+  });
+
+  it("still returns stale empty data within the 90-second error window (no extra fetch)", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const urlStr = String(url);
+        if (urlStr.includes("statsapi.mlb.com")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+        }
+        if (urlStr.includes("schedule/now")) {
+          callCount++;
+          return Promise.resolve({ ok: false, status: 503 });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+
+    await fetchTodayStarters();
+    vi.advanceTimersByTime(60 * 1000);
+    const result = await fetchTodayStarters();
+
+    expect(callCount).toBe(1);
+    expect(result.filter((s) => s.sport === "icehockey_nhl")).toHaveLength(0);
+  });
+
+  it("returns fresh starters after the API recovers once the error TTL expires", async () => {
+    let apiDown = true;
+    const schedule = nhlScheduleResponse([makeNhlGame({ id: 1, homeName: "Toronto Maple Leafs", awayName: "Boston Bruins" })]);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const urlStr = String(url);
+        if (urlStr.includes("statsapi.mlb.com")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+        }
+        if (urlStr.includes("schedule/now")) {
+          if (apiDown) return Promise.resolve({ ok: false, status: 503 });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(schedule) });
+        }
+        if (urlStr.includes("boxscore")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(makeNhlBoxscore("Ilya Samsonov", "Jeremy Swayman")) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+
+    const before = await fetchTodayStarters();
+    expect(before.filter((s) => s.sport === "icehockey_nhl")).toHaveLength(0);
+
+    apiDown = false;
+    vi.advanceTimersByTime(91 * 1000);
+
+    const after = await fetchTodayStarters();
+    const nhl = after.filter((s) => s.sport === "icehockey_nhl");
+    expect(nhl).toHaveLength(1);
+    expect(nhl[0].confirmed).toBe(true);
+    expect(nhl[0].homeStarter).toBe("Ilya Samsonov");
+  });
+
+  it("uses the short 90-second TTL when the API returns HTTP 200 with empty gameWeek (not just on errors)", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const urlStr = String(url);
+        if (urlStr.includes("statsapi.mlb.com")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+        }
+        if (urlStr.includes("schedule/now")) {
+          callCount++;
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(1);
+
+    vi.advanceTimersByTime(91 * 1000);
+    await fetchTodayStarters();
+    expect(callCount).toBe(2);
+  });
+
+  it("returns fresh starters after recovery from a 200-but-empty response within 90 seconds", async () => {
+    let emptyResponse = true;
+    const schedule = nhlScheduleResponse([makeNhlGame({ id: 1, homeName: "Toronto Maple Leafs", awayName: "Boston Bruins" })]);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const urlStr = String(url);
+        if (urlStr.includes("statsapi.mlb.com")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+        }
+        if (urlStr.includes("schedule/now")) {
+          if (emptyResponse) return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(schedule) });
+        }
+        if (urlStr.includes("boxscore")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(makeNhlBoxscore("Ilya Samsonov", "Jeremy Swayman")) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+
+    const before = await fetchTodayStarters();
+    expect(before.filter((s) => s.sport === "icehockey_nhl")).toHaveLength(0);
+
+    emptyResponse = false;
+    vi.advanceTimersByTime(91 * 1000);
+
+    const after = await fetchTodayStarters();
+    const nhl = after.filter((s) => s.sport === "icehockey_nhl");
+    expect(nhl).toHaveLength(1);
+    expect(nhl[0].homeStarter).toBe("Ilya Samsonov");
+  });
+});
+
+describe("fetchNhlGames – last-known-good fallback during outage", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    _resetMlbStarterCache();
+    _resetNhlStarterCache();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    _resetMlbStarterCache();
+    _resetNhlStarterCache();
+  });
+
+  it("serves last-known-good starters when the API fails after a prior successful fetch", async () => {
+    const schedule = nhlScheduleResponse([makeNhlGame({ id: 1, homeName: "Toronto Maple Leafs", awayName: "Boston Bruins" })]);
+    let apiDown = false;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const urlStr = String(url);
+        if (urlStr.includes("statsapi.mlb.com")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+        }
+        if (urlStr.includes("schedule/now")) {
+          if (apiDown) return Promise.reject(new Error("ECONNREFUSED"));
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(schedule) });
+        }
+        if (urlStr.includes("boxscore")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(makeNhlBoxscore("Ilya Samsonov", "Jeremy Swayman")) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+
+    const first = await fetchTodayStarters();
+    expect(first.filter((s) => s.sport === "icehockey_nhl")).toHaveLength(1);
+
+    apiDown = true;
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+    const duringOutage = await fetchTodayStarters();
+    const nhl = duringOutage.filter((s) => s.sport === "icehockey_nhl");
+    expect(nhl).toHaveLength(1);
+    expect(nhl[0].homeStarter).toBe("Ilya Samsonov");
+    expect(nhl[0].confirmed).toBe(true);
+  });
+
+  it("still re-fetches within the short error TTL when serving last-known-good (no extra fetches inside the window)", async () => {
+    const schedule = nhlScheduleResponse([makeNhlGame({ id: 1, homeName: "Toronto Maple Leafs", awayName: "Boston Bruins" })]);
+    let callCount = 0;
+    let apiDown = false;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const urlStr = String(url);
+        if (urlStr.includes("statsapi.mlb.com")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+        }
+        if (urlStr.includes("schedule/now")) {
+          callCount++;
+          if (apiDown) return Promise.reject(new Error("ECONNREFUSED"));
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(schedule) });
+        }
+        if (urlStr.includes("boxscore")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(makeNhlBoxscore("Ilya Samsonov", "Jeremy Swayman")) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(1);
+
+    apiDown = true;
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(2);
+
+    vi.advanceTimersByTime(60 * 1000);
+    await fetchTodayStarters();
+    expect(callCount).toBe(2);
+  });
+
+  it("returns fresh starters once the API recovers after the error TTL expires while serving last-known-good", async () => {
+    const oldSchedule = nhlScheduleResponse([makeNhlGame({ id: 1, homeName: "Toronto Maple Leafs", awayName: "Boston Bruins" })]);
+    const newSchedule = nhlScheduleResponse([makeNhlGame({ id: 2, homeName: "Toronto Maple Leafs", awayName: "Boston Bruins" })]);
+    let apiDown = false;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const urlStr = String(url);
+        if (urlStr.includes("statsapi.mlb.com")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+        }
+        if (urlStr.includes("schedule/now")) {
+          if (apiDown) return Promise.reject(new Error("ECONNREFUSED"));
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(apiDown ? oldSchedule : newSchedule) });
+        }
+        if (urlStr.includes("boxscore")) {
+          if (urlStr.includes("/2/")) {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve(makeNhlBoxscore("Joseph Woll", "Jeremy Swayman")) });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(makeNhlBoxscore("Ilya Samsonov", "Jeremy Swayman")) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+
+    await fetchTodayStarters();
+
+    apiDown = true;
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+    await fetchTodayStarters();
+
+    apiDown = false;
+    vi.advanceTimersByTime(91 * 1000);
+
+    const after = await fetchTodayStarters();
+    const nhl = after.filter((s) => s.sport === "icehockey_nhl");
+    expect(nhl).toHaveLength(1);
+    expect(nhl[0].homeStarter).toBe("Joseph Woll");
+    expect(nhl[0].confirmed).toBe(true);
+  });
+
+  it("does not fall back to last-known-good when the API returns a 200-but-empty response (explicit no games today)", async () => {
+    const schedule = nhlScheduleResponse([makeNhlGame({ id: 1, homeName: "Toronto Maple Leafs", awayName: "Boston Bruins" })]);
+    let returnEmpty = false;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        const urlStr = String(url);
+        if (urlStr.includes("statsapi.mlb.com")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ dates: [] }) });
+        }
+        if (urlStr.includes("schedule/now")) {
+          if (returnEmpty) return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(schedule) });
+        }
+        if (urlStr.includes("boxscore")) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(makeNhlBoxscore("Ilya Samsonov", "Jeremy Swayman")) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      }),
+    );
+
+    const first = await fetchTodayStarters();
+    expect(first.filter((s) => s.sport === "icehockey_nhl")).toHaveLength(1);
+
+    returnEmpty = true;
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+    const second = await fetchTodayStarters();
+    expect(second.filter((s) => s.sport === "icehockey_nhl")).toHaveLength(0);
   });
 });
