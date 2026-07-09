@@ -50,67 +50,96 @@ function extractPitcherStats(pitcher: MlbProbablePitcher | undefined): MlbPitche
   };
 }
 
-async function fetchMlbStarters(): Promise<GameStarter[]> {
+const MLB_CACHE_TTL_MS = 5 * 60 * 1000;
+const MLB_CACHE_ERROR_TTL_MS = 90 * 1000;
+
+interface MlbStarterCache {
+  data: GameStarter[];
+  expiresAt: number;
+}
+
+let _mlbCache: MlbStarterCache | null = null;
+
+export function _resetMlbStarterCache(): void {
+  _mlbCache = null;
+}
+
+async function fetchMlbStartersRaw(): Promise<GameStarter[]> {
   const today = new Date().toLocaleDateString("en-CA");
   const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${today}&hydrate=probablePitcher(stats(type=season,group=pitching)),lineups`;
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error(`MLB API ${res.status}`);
-    const json = (await res.json()) as {
-      dates: Array<{
-        games: Array<{
-          teams: {
-            away: { team: { name: string }; probablePitcher?: MlbProbablePitcher };
-            home: { team: { name: string }; probablePitcher?: MlbProbablePitcher };
-          };
-          lineups?: {
-            homePitchers?: Array<{ person: { fullName: string } }>;
-            awayPitchers?: Array<{ person: { fullName: string } }>;
-          };
-        }>;
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`MLB API ${res.status}`);
+  const json = (await res.json()) as {
+    dates: Array<{
+      games: Array<{
+        teams: {
+          away: { team: { name: string }; probablePitcher?: MlbProbablePitcher };
+          home: { team: { name: string }; probablePitcher?: MlbProbablePitcher };
+        };
+        lineups?: {
+          homePitchers?: Array<{ person: { fullName: string } }>;
+          awayPitchers?: Array<{ person: { fullName: string } }>;
+        };
       }>;
-    };
+    }>;
+  };
 
-    const starters: GameStarter[] = [];
-    for (const date of json.dates ?? []) {
-      for (const game of date.games ?? []) {
-        const confirmedHome = game.lineups?.homePitchers?.[0]?.person.fullName ?? null;
-        const confirmedAway = game.lineups?.awayPitchers?.[0]?.person.fullName ?? null;
-        const confirmed = confirmedHome !== null || confirmedAway !== null;
+  const starters: GameStarter[] = [];
+  for (const date of json.dates ?? []) {
+    for (const game of date.games ?? []) {
+      const confirmedHome = game.lineups?.homePitchers?.[0]?.person.fullName ?? null;
+      const confirmedAway = game.lineups?.awayPitchers?.[0]?.person.fullName ?? null;
+      const confirmed = confirmedHome !== null || confirmedAway !== null;
 
-        const homeProb = game.teams.home.probablePitcher;
-        const awayProb = game.teams.away.probablePitcher;
+      const homeProb = game.teams.home.probablePitcher;
+      const awayProb = game.teams.away.probablePitcher;
 
-        const homeStarterName = confirmedHome ?? homeProb?.fullName ?? null;
-        const awayStarterName = confirmedAway ?? awayProb?.fullName ?? null;
+      const homeStarterName = confirmedHome ?? homeProb?.fullName ?? null;
+      const awayStarterName = confirmedAway ?? awayProb?.fullName ?? null;
 
-        const homeStats = confirmedHome === null || confirmedHome === homeProb?.fullName
-          ? extractPitcherStats(homeProb)
-          : { era: null, whip: null };
-        const awayStats = confirmedAway === null || confirmedAway === awayProb?.fullName
-          ? extractPitcherStats(awayProb)
-          : { era: null, whip: null };
+      const homeStats = confirmedHome === null || confirmedHome === homeProb?.fullName
+        ? extractPitcherStats(homeProb)
+        : { era: null, whip: null };
+      const awayStats = confirmedAway === null || confirmedAway === awayProb?.fullName
+        ? extractPitcherStats(awayProb)
+        : { era: null, whip: null };
 
-        starters.push({
-          homeTeam: game.teams.home.team.name,
-          awayTeam: game.teams.away.team.name,
-          sport: "baseball_mlb",
-          homeStarter: homeStarterName,
-          awayStarter: awayStarterName,
-          homeStarterEra: confirmed ? homeStats.era : null,
-          homeStarterWhip: confirmed ? homeStats.whip : null,
-          awayStarterEra: confirmed ? awayStats.era : null,
-          awayStarterWhip: confirmed ? awayStats.whip : null,
-          starterType: "pitcher",
-          confirmed,
-        });
-      }
+      starters.push({
+        homeTeam: game.teams.home.team.name,
+        awayTeam: game.teams.away.team.name,
+        sport: "baseball_mlb",
+        homeStarter: homeStarterName,
+        awayStarter: awayStarterName,
+        homeStarterEra: confirmed ? homeStats.era : null,
+        homeStarterWhip: confirmed ? homeStats.whip : null,
+        awayStarterEra: confirmed ? awayStats.era : null,
+        awayStarterWhip: confirmed ? awayStats.whip : null,
+        starterType: "pitcher",
+        confirmed,
+      });
     }
-    return starters;
+  }
+  return starters;
+}
+
+async function fetchMlbStarters(): Promise<GameStarter[]> {
+  if (_mlbCache && Date.now() < _mlbCache.expiresAt) {
+    return _mlbCache.data;
+  }
+
+  let data: GameStarter[];
+
+  try {
+    data = await fetchMlbStartersRaw();
   } catch (err) {
     logger.warn({ err }, "Failed to fetch MLB starters");
-    return [];
+    data = [];
   }
+
+  const ttl = data.length === 0 ? MLB_CACHE_ERROR_TTL_MS : MLB_CACHE_TTL_MS;
+
+  _mlbCache = { data, expiresAt: Date.now() + ttl };
+  return data;
 }
 
 interface NhlTeam {

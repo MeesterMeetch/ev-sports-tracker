@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { fetchTodayStarters } from "./starters";
+import { fetchTodayStarters, _resetMlbStarterCache } from "./starters";
 
 const TODAY = new Date().toLocaleDateString("en-CA");
 
@@ -94,6 +94,7 @@ function mockFetch(mlbBody: object, nhlBody: object = { gameWeek: [] }) {
 describe("fetchMlbStarters – confirmed starter badge resilience", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    _resetMlbStarterCache();
   });
 
   it("sets confirmed=true and uses lineup pitcher when lineups field is present", async () => {
@@ -218,6 +219,7 @@ describe("fetchMlbStarters – confirmed starter badge resilience", () => {
 describe("fetchMlbStarters – ERA/WHIP stat fallback resilience", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    _resetMlbStarterCache();
   });
 
   it("populates ERA and WHIP when confirmed starter matches probable and stats are present", async () => {
@@ -370,5 +372,215 @@ describe("fetchMlbStarters – ERA/WHIP stat fallback resilience", () => {
     expect(mlb[0].awayStarter).toBe("Sandy Alcantara");
     expect(mlb[0].awayStarterEra).toBe("2.28");
     expect(mlb[0].awayStarterWhip).toBe("0.95");
+  });
+});
+
+describe("fetchMlbStarters – cache TTL behaviour", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    _resetMlbStarterCache();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    _resetMlbStarterCache();
+  });
+
+  it("caches a successful non-empty response and does not re-fetch within the normal TTL", async () => {
+    const game = makeGame({
+      homeName: "New York Yankees",
+      awayName: "Boston Red Sox",
+      homeProbable: "Gerrit Cole",
+      awayProbable: "Chris Sale",
+    });
+    const fetchMock = mockFetch(mlbResponse([game]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchTodayStarters();
+    const mlbCallCount = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes("statsapi.mlb.com")
+    ).length;
+
+    vi.advanceTimersByTime(4 * 60 * 1000);
+
+    await fetchTodayStarters();
+    const mlbCallCountAfter = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes("statsapi.mlb.com")
+    ).length;
+
+    expect(mlbCallCount).toBe(1);
+    expect(mlbCallCountAfter).toBe(1);
+  });
+
+  it("re-fetches after the normal 5-minute TTL expires for a successful response", async () => {
+    const game = makeGame({
+      homeName: "New York Yankees",
+      awayName: "Boston Red Sox",
+      homeProbable: "Gerrit Cole",
+      awayProbable: "Chris Sale",
+    });
+    const fetchMock = mockFetch(mlbResponse([game]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchTodayStarters();
+
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+
+    await fetchTodayStarters();
+    const mlbCallCount = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes("statsapi.mlb.com")
+    ).length;
+
+    expect(mlbCallCount).toBe(2);
+  });
+
+  it("uses a short 90-second TTL when the MLB API returns an error, not the full 5-minute TTL", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          callCount++;
+          return Promise.resolve({ ok: false, status: 503 });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(1);
+
+    vi.advanceTimersByTime(91 * 1000);
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(2);
+  });
+
+  it("still returns stale empty data within the 90-second error window (no extra fetch)", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          callCount++;
+          return Promise.resolve({ ok: false, status: 503 });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    await fetchTodayStarters();
+    vi.advanceTimersByTime(60 * 1000);
+    const result = await fetchTodayStarters();
+
+    expect(callCount).toBe(1);
+    expect(result.filter((s) => s.sport === "baseball_mlb")).toHaveLength(0);
+  });
+
+  it("returns fresh starters after the API recovers once the error TTL expires", async () => {
+    let apiDown = true;
+    const game = makeGame({
+      homeName: "Houston Astros",
+      awayName: "Texas Rangers",
+      homeProbable: "Justin Verlander",
+      awayProbable: "Jacob deGrom",
+      homeConfirmed: "Justin Verlander",
+      awayConfirmed: "Jacob deGrom",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          if (apiDown) return Promise.resolve({ ok: false, status: 503 });
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mlbResponse([game])),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    const before = await fetchTodayStarters();
+    expect(before.filter((s) => s.sport === "baseball_mlb")).toHaveLength(0);
+
+    apiDown = false;
+    vi.advanceTimersByTime(91 * 1000);
+
+    const after = await fetchTodayStarters();
+    const mlb = after.filter((s) => s.sport === "baseball_mlb");
+    expect(mlb).toHaveLength(1);
+    expect(mlb[0].confirmed).toBe(true);
+    expect(mlb[0].homeStarter).toBe("Justin Verlander");
+  });
+
+  it("uses the short 90-second TTL when the API returns HTTP 200 with empty dates (not just on errors)", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          callCount++;
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ dates: [] }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(1);
+
+    vi.advanceTimersByTime(91 * 1000);
+
+    await fetchTodayStarters();
+    expect(callCount).toBe(2);
+  });
+
+  it("returns fresh starters after recovery from a 200-but-empty response within 90 seconds", async () => {
+    let emptyResponse = true;
+    const game = makeGame({
+      homeName: "Los Angeles Dodgers",
+      awayName: "San Francisco Giants",
+      homeProbable: "Clayton Kershaw",
+      awayProbable: "Logan Webb",
+      homeConfirmed: "Clayton Kershaw",
+      awayConfirmed: "Logan Webb",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          if (emptyResponse) {
+            return Promise.resolve({
+              ok: true,
+              json: () => Promise.resolve({ dates: [] }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(mlbResponse([game])),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    const before = await fetchTodayStarters();
+    expect(before.filter((s) => s.sport === "baseball_mlb")).toHaveLength(0);
+
+    emptyResponse = false;
+    vi.advanceTimersByTime(91 * 1000);
+
+    const after = await fetchTodayStarters();
+    const mlb = after.filter((s) => s.sport === "baseball_mlb");
+    expect(mlb).toHaveLength(1);
+    expect(mlb[0].confirmed).toBe(true);
+    expect(mlb[0].homeStarter).toBe("Clayton Kershaw");
   });
 });
