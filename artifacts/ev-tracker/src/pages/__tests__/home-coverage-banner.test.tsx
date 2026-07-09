@@ -79,6 +79,32 @@ const NBA_COVERAGE: SharpCoverage = {
   gamesWithSharpTotals: 2,
 };
 
+const NFL_ZERO_H2H_COVERAGE: SharpCoverage = {
+  gamesEvaluated: 8,
+  gamesWithSharpH2H: 0,
+  gamesWithSharpSpreads: 6,
+  gamesWithSharpTotals: 5,
+};
+
+function makeH2HBet(): EvBet {
+  return {
+    gameId: "nfl-game-1",
+    homeTeam: "Chiefs",
+    awayTeam: "Eagles",
+    sport: "americanfootball_nfl",
+    market: "h2h",
+    selection: "Chiefs",
+    bookmaker: "draftkings",
+    americanOdds: -115,
+    noVigProb: 0.535,
+    estimatedProb: 0.535,
+    evPercent: 3.2,
+    kellyFraction: 0.03,
+    suggestedUnits: 1,
+    commenceTime: new Date().toISOString(),
+  };
+}
+
 const MOCK_SPORTS: Sport[] = [
   { key: "americanfootball_nfl", title: "NFL Football", active: true },
   { key: "basketball_nba", title: "Basketball NBA", active: true },
@@ -310,5 +336,114 @@ describe("Home page — SharpCoverageBanner updates on sport switch", () => {
     expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("13/14");
     expect(screen.getByTestId("coverage-spreads")).toHaveTextContent("12/14");
     expect(screen.getByTestId("coverage-totals")).toHaveTextContent("11/14");
+  });
+});
+
+describe("Home page — red zero-coverage warning on sport switch", () => {
+  const useGetEvCard = vi.mocked(apiClient.useGetEvCard);
+  const useGetNearMisses = vi.mocked(apiClient.useGetNearMisses);
+  const useListSports = vi.mocked(apiClient.useListSports);
+  const useListStarters = vi.mocked(apiClient.useListStarters);
+  const useCreateBet = vi.mocked(apiClient.useCreateBet);
+  const useListBets = vi.mocked(apiClient.useListBets);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+
+    useListSports.mockReturnValue(makeQueryResult(MOCK_SPORTS) as ReturnType<typeof apiClient.useListSports>);
+    useListStarters.mockReturnValue(makeQueryResult([]) as ReturnType<typeof apiClient.useListStarters>);
+    useListBets.mockReturnValue(makeQueryResult([]) as ReturnType<typeof apiClient.useListBets>);
+    useCreateBet.mockReturnValue(makeMutationResult() as ReturnType<typeof apiClient.useCreateBet>);
+    useGetNearMisses.mockReturnValue(makeQueryResult([]) as ReturnType<typeof apiClient.useGetNearMisses>);
+
+    useGetEvCard.mockImplementation((params) => {
+      if (params && "sport" in params && params.sport === "americanfootball_nfl") {
+        return makeQueryResult(
+          makeEvCardResponse(NFL_ZERO_H2H_COVERAGE, [makeH2HBet()])
+        ) as ReturnType<typeof apiClient.useGetEvCard>;
+      }
+      return makeQueryResult(
+        makeEvCardResponse(ALL_SPORTS_COVERAGE)
+      ) as ReturnType<typeof apiClient.useGetEvCard>;
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it("red warning-h2h appears after switching to a sport with 0 h2h sharp-line games and active h2h bets", () => {
+    renderHome();
+
+    expect(screen.queryByTestId("warning-h2h")).not.toBeInTheDocument();
+
+    const nflOption = screen.getByRole("option", { name: "NFL Football" });
+    fireEvent.click(nflOption);
+
+    const warning = screen.getByTestId("warning-h2h");
+    expect(warning).toBeInTheDocument();
+    expect(warning).toHaveTextContent("No sharp lines");
+    expect(warning).toHaveTextContent("Moneyline EV is unreliable for this market");
+  });
+
+  it("red warning-h2h uses red border styling, not amber", () => {
+    renderHome();
+
+    const nflOption = screen.getByRole("option", { name: "NFL Football" });
+    fireEvent.click(nflOption);
+
+    const warning = screen.getByTestId("warning-h2h");
+    expect(warning).toHaveClass("border-red-500/40");
+    expect(warning).not.toHaveClass("border-amber-500/40");
+  });
+
+  it("coverage-moneyline stat shows 0/8 (red) after switching to zero-h2h sport", () => {
+    renderHome();
+
+    const nflOption = screen.getByRole("option", { name: "NFL Football" });
+    fireEvent.click(nflOption);
+
+    expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("0/8");
+    expect(screen.getByTestId("coverage-moneyline")).toHaveClass("text-red-400");
+  });
+
+  it("red warning disappears when switching back to a sport with adequate h2h coverage", () => {
+    renderHome();
+
+    const nflOption = screen.getByRole("option", { name: "NFL Football" });
+    fireEvent.click(nflOption);
+
+    expect(screen.getByTestId("warning-h2h")).toBeInTheDocument();
+
+    const allOption = screen.getByRole("option", { name: "All Sports" });
+    fireEvent.click(allOption);
+
+    expect(screen.queryByTestId("warning-h2h")).not.toBeInTheDocument();
+  });
+
+  it("coverage numbers update away from the zero-h2h values after switching back to all sports", () => {
+    renderHome();
+
+    const nflOption = screen.getByRole("option", { name: "NFL Football" });
+    fireEvent.click(nflOption);
+
+    expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("0/8");
+
+    const allOption = screen.getByRole("option", { name: "All Sports" });
+    fireEvent.click(allOption);
+
+    expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("9/10");
+    expect(screen.getByTestId("coverage-moneyline")).not.toHaveTextContent("0/8");
+  });
+
+  it("spreads and totals warnings do not appear when only h2h has zero coverage", () => {
+    renderHome();
+
+    const nflOption = screen.getByRole("option", { name: "NFL Football" });
+    fireEvent.click(nflOption);
+
+    expect(screen.queryByTestId("warning-spreads")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("warning-totals")).not.toBeInTheDocument();
   });
 });
