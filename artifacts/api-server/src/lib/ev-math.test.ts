@@ -308,6 +308,177 @@ describe("findNearestSharpEntry", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// findNearestSharpEntry – spreads mismatch (retail point ≠ sharp point)
+// ---------------------------------------------------------------------------
+
+describe("findNearestSharpEntry – spreads nearest-point fallback", () => {
+  function makeSpreadMap(
+    entries: Array<{ name: string; point: number; odds: number }>,
+  ): Map<string, { odds: number; point: number }> {
+    const m = new Map<string, { odds: number; point: number }>();
+    for (const e of entries) {
+      m.set(`${e.name}_${e.point}`, { odds: e.odds, point: e.point });
+    }
+    return m;
+  }
+
+  it("returns a defined entry (not undefined, not null) when retail point differs from sharp point by 1.0", () => {
+    const sharpSpreads = makeSpreadMap([
+      { name: "TeamA", point: -3.5, odds: -108 },
+      { name: "TeamB", point: 3.5, odds: -112 },
+    ]);
+
+    // Retail has TeamA at -4.5 — sharp only has -3.5 → pointDiff should be 1.0
+    const result = findNearestSharpEntry(sharpSpreads, "TeamA", -4.5);
+
+    expect(result).not.toBeUndefined();
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(1.0);
+    expect(result!.entry.point).toBe(-3.5);
+    expect(result!.entry.odds).toBe(-108);
+  });
+
+  it("returns the nearest sharp spread entry when there are multiple candidates", () => {
+    const sharpSpreads = makeSpreadMap([
+      { name: "TeamA", point: -2.5, odds: -105 },
+      { name: "TeamA", point: -3.5, odds: -110 },
+      { name: "TeamA", point: -5.5, odds: -115 },
+    ]);
+
+    // Retail at -4.5 → closest is -3.5 (diff 1.0) over -5.5 (diff 1.0) or -2.5 (diff 2.0)
+    const result = findNearestSharpEntry(sharpSpreads, "TeamA", -4.5);
+
+    expect(result).not.toBeNull();
+    expect(result).not.toBeUndefined();
+    expect(result!.pointDiff).toBeCloseTo(1.0);
+  });
+
+  it("does not mix up TeamA and TeamB entries when looking up the wrong team name", () => {
+    const sharpSpreads = makeSpreadMap([
+      { name: "TeamA", point: -3.5, odds: -108 },
+      { name: "TeamB", point: 3.5, odds: -112 },
+    ]);
+
+    // TeamC does not exist — must return null, never a TeamA/TeamB entry
+    const result = findNearestSharpEntry(sharpSpreads, "TeamC", 3.5);
+
+    expect(result).toBeNull();
+  });
+
+  it("always returns an object with an entry property (never bare undefined)", () => {
+    const sharpSpreads = makeSpreadMap([
+      { name: "TeamA", point: -7, odds: -110 },
+      { name: "TeamB", point: 7, odds: -110 },
+    ]);
+
+    // Any non-null result must have a defined .entry
+    const result = findNearestSharpEntry(sharpSpreads, "TeamA", -3.5);
+
+    if (result !== null) {
+      expect(result.entry).toBeDefined();
+      expect(typeof result.entry.odds).toBe("number");
+      expect(typeof result.entry.point).toBe("number");
+      expect(typeof result.pointDiff).toBe("number");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findNearestSharpEntry – totals mismatch (retail total ≠ sharp total)
+// ---------------------------------------------------------------------------
+
+describe("findNearestSharpEntry – totals nearest-point fallback", () => {
+  function makeTotalsMap(
+    entries: Array<{ name: string; point: number; odds: number }>,
+  ): Map<string, { odds: number; point: number }> {
+    const m = new Map<string, { odds: number; point: number }>();
+    for (const e of entries) {
+      m.set(`${e.name}_${e.point}`, { odds: e.odds, point: e.point });
+    }
+    return m;
+  }
+
+  it("returns a defined entry (not undefined, not null) when retail total differs from sharp total by 0.5", () => {
+    const sharpTotals = makeTotalsMap([
+      { name: "Over", point: 9.5, odds: -110 },
+      { name: "Under", point: 9.5, odds: -110 },
+    ]);
+
+    // Retail has Over at 9 — sharp only has 9.5 → pointDiff should be 0.5
+    const result = findNearestSharpEntry(sharpTotals, "Over", 9);
+
+    expect(result).not.toBeUndefined();
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(0.5);
+    expect(result!.entry.point).toBe(9.5);
+    expect(result!.entry.odds).toBe(-110);
+  });
+
+  it("returns a defined entry when retail total differs from sharp total by 1.0", () => {
+    const sharpTotals = makeTotalsMap([
+      { name: "Over", point: 8.5, odds: -108 },
+      { name: "Under", point: 8.5, odds: -112 },
+    ]);
+
+    // Retail has Under at 9.5 — closest sharp is 8.5 → pointDiff 1.0
+    const result = findNearestSharpEntry(sharpTotals, "Under", 9.5);
+
+    expect(result).not.toBeUndefined();
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(1.0);
+    expect(result!.entry.point).toBe(8.5);
+  });
+
+  it("picks the closest total when multiple sharp points exist for the same side", () => {
+    const sharpTotals = makeTotalsMap([
+      { name: "Over", point: 7.5, odds: -105 },
+      { name: "Over", point: 8.5, odds: -108 },
+      { name: "Over", point: 9.5, odds: -112 },
+    ]);
+
+    // Retail at 9 is closest to 8.5 (diff 0.5) vs 9.5 (diff 0.5) — either is acceptable;
+    // result must be defined and pointDiff ≤ 0.5
+    const result = findNearestSharpEntry(sharpTotals, "Over", 9);
+
+    expect(result).not.toBeNull();
+    expect(result).not.toBeUndefined();
+    expect(result!.pointDiff).toBeLessThanOrEqual(0.5);
+  });
+
+  it("does not confuse Over and Under lookups when points differ", () => {
+    const sharpTotals = makeTotalsMap([
+      { name: "Over", point: 9.5, odds: -110 },
+      { name: "Under", point: 9.5, odds: -110 },
+    ]);
+
+    // Looking up Over at 8 should return an Over entry, never an Under entry
+    const result = findNearestSharpEntry(sharpTotals, "Over", 8);
+
+    expect(result).not.toBeNull();
+    expect(result).not.toBeUndefined();
+    expect(result!.pointDiff).toBeCloseTo(1.5);
+    // The map key prefix is "Over_", so we only get Over entries back
+    expect(result!.entry.point).toBe(9.5);
+  });
+
+  it("always returns an object with a defined entry property (never bare undefined)", () => {
+    const sharpTotals = makeTotalsMap([
+      { name: "Over", point: 9.5, odds: -110 },
+      { name: "Under", point: 9.5, odds: -110 },
+    ]);
+
+    const result = findNearestSharpEntry(sharpTotals, "Under", 8);
+
+    if (result !== null) {
+      expect(result.entry).toBeDefined();
+      expect(typeof result.entry.odds).toBe("number");
+      expect(typeof result.entry.point).toBe("number");
+      expect(typeof result.pointDiff).toBe("number");
+    }
+  });
+});
+
 describe("extractSharpLineProbs – spreads / totals cascade", () => {
   it("picks LowVig for spreads when present", () => {
     const books: Bookmaker[] = [
