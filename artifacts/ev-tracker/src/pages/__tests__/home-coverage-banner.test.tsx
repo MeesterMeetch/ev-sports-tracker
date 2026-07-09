@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, createContext, useContext } from "vitest";
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Home from "../home";
 import * as apiClient from "@workspace/api-client-react";
@@ -63,6 +63,13 @@ const ALL_SPORTS_COVERAGE: SharpCoverage = {
   gamesWithSharpH2H: 9,
   gamesWithSharpSpreads: 8,
   gamesWithSharpTotals: 7,
+};
+
+const REFRESHED_COVERAGE: SharpCoverage = {
+  gamesEvaluated: 14,
+  gamesWithSharpH2H: 13,
+  gamesWithSharpSpreads: 12,
+  gamesWithSharpTotals: 11,
 };
 
 const NBA_COVERAGE: SharpCoverage = {
@@ -237,5 +244,71 @@ describe("Home page — SharpCoverageBanner updates on sport switch", () => {
     expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("9/10");
     expect(screen.getByTestId("coverage-spreads")).toHaveTextContent("8/10");
     expect(screen.getByTestId("coverage-totals")).toHaveTextContent("7/10");
+  });
+
+  it("banner reflects new sharpCoverage after manual refresh, not the stale cached values", () => {
+    renderHome();
+
+    expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("9/10");
+    expect(screen.getByTestId("coverage-spreads")).toHaveTextContent("8/10");
+    expect(screen.getByTestId("coverage-totals")).toHaveTextContent("7/10");
+
+    act(() => { vi.advanceTimersByTime(1000); });
+
+    useGetEvCard.mockImplementation(() =>
+      makeQueryResult(makeEvCardResponse(REFRESHED_COVERAGE)) as ReturnType<typeof apiClient.useGetEvCard>
+    );
+
+    const refreshButton = screen.getByTitle("Refresh markets");
+    fireEvent.click(refreshButton);
+
+    expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("13/14");
+    expect(screen.getByTestId("coverage-spreads")).toHaveTextContent("12/14");
+    expect(screen.getByTestId("coverage-totals")).toHaveTextContent("11/14");
+  });
+
+  it("banner does not show stale numbers after refresh — old counts are gone", () => {
+    renderHome();
+
+    expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("9/10");
+
+    act(() => { vi.advanceTimersByTime(1000); });
+
+    useGetEvCard.mockImplementation(() =>
+      makeQueryResult(makeEvCardResponse(REFRESHED_COVERAGE)) as ReturnType<typeof apiClient.useGetEvCard>
+    );
+
+    const refreshButton = screen.getByTitle("Refresh markets");
+    fireEvent.click(refreshButton);
+
+    expect(screen.getByTestId("coverage-moneyline")).not.toHaveTextContent("9/10");
+    expect(screen.getByTestId("coverage-spreads")).not.toHaveTextContent("8/10");
+    expect(screen.getByTestId("coverage-totals")).not.toHaveTextContent("7/10");
+  });
+
+  it("refresh does not serve stale coverage for more than one render cycle", () => {
+    renderHome();
+
+    expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("9/10");
+
+    act(() => { vi.advanceTimersByTime(1000); });
+
+    useGetEvCard.mockImplementation(() =>
+      makeQueryResult(makeEvCardResponse(REFRESHED_COVERAGE)) as ReturnType<typeof apiClient.useGetEvCard>
+    );
+
+    const refreshButton = screen.getByTitle("Refresh markets");
+    fireEvent.click(refreshButton);
+
+    expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("13/14");
+    expect(screen.getByTestId("coverage-spreads")).toHaveTextContent("12/14");
+    expect(screen.getByTestId("coverage-totals")).toHaveTextContent("11/14");
+
+    act(() => { vi.advanceTimersByTime(1000); });
+    fireEvent.click(refreshButton);
+
+    expect(screen.getByTestId("coverage-moneyline")).toHaveTextContent("13/14");
+    expect(screen.getByTestId("coverage-spreads")).toHaveTextContent("12/14");
+    expect(screen.getByTestId("coverage-totals")).toHaveTextContent("11/14");
   });
 });
