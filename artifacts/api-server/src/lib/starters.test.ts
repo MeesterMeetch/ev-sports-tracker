@@ -9,6 +9,18 @@ function mlbResponse(games: object[]) {
   };
 }
 
+interface PitcherStats { era: string; whip: string; }
+
+function makeSeasonStats(stats: PitcherStats) {
+  return [
+    {
+      type: { displayName: "season" },
+      group: { displayName: "pitching" },
+      splits: [{ stat: { era: stats.era, whip: stats.whip } }],
+    },
+  ];
+}
+
 function makeGame(opts: {
   homeName: string;
   awayName: string;
@@ -16,16 +28,36 @@ function makeGame(opts: {
   awayProbable?: string;
   homeConfirmed?: string;
   awayConfirmed?: string;
+  homeProbableStats?: PitcherStats;
+  awayProbableStats?: PitcherStats;
 }) {
   return {
     teams: {
       home: {
         team: { name: opts.homeName },
-        ...(opts.homeProbable ? { probablePitcher: { fullName: opts.homeProbable } } : {}),
+        ...(opts.homeProbable
+          ? {
+              probablePitcher: {
+                fullName: opts.homeProbable,
+                ...(opts.homeProbableStats
+                  ? { stats: makeSeasonStats(opts.homeProbableStats) }
+                  : {}),
+              },
+            }
+          : {}),
       },
       away: {
         team: { name: opts.awayName },
-        ...(opts.awayProbable ? { probablePitcher: { fullName: opts.awayProbable } } : {}),
+        ...(opts.awayProbable
+          ? {
+              probablePitcher: {
+                fullName: opts.awayProbable,
+                ...(opts.awayProbableStats
+                  ? { stats: makeSeasonStats(opts.awayProbableStats) }
+                  : {}),
+              },
+            }
+          : {}),
       },
     },
     ...(opts.homeConfirmed || opts.awayConfirmed
@@ -180,5 +212,163 @@ describe("fetchMlbStarters – confirmed starter badge resilience", () => {
     const rays = mlb.find((s) => s.homeTeam === "Tampa Bay Rays");
     expect(rays?.confirmed).toBe(false);
     expect(rays?.homeStarter).toBe("Shane McClanahan");
+  });
+});
+
+describe("fetchMlbStarters – ERA/WHIP stat fallback resilience", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("populates ERA and WHIP when confirmed starter matches probable and stats are present", async () => {
+    const game = makeGame({
+      homeName: "New York Yankees",
+      awayName: "Boston Red Sox",
+      homeProbable: "Gerrit Cole",
+      awayProbable: "Chris Sale",
+      homeConfirmed: "Gerrit Cole",
+      awayConfirmed: "Chris Sale",
+      homeProbableStats: { era: "3.14", whip: "1.05" },
+      awayProbableStats: { era: "2.90", whip: "0.98" },
+    });
+    vi.stubGlobal("fetch", mockFetch(mlbResponse([game])));
+
+    const starters = await fetchTodayStarters();
+    const mlb = starters.filter((s) => s.sport === "baseball_mlb");
+
+    expect(mlb).toHaveLength(1);
+    expect(mlb[0].confirmed).toBe(true);
+    expect(mlb[0].homeStarterEra).toBe("3.14");
+    expect(mlb[0].homeStarterWhip).toBe("1.05");
+    expect(mlb[0].awayStarterEra).toBe("2.90");
+    expect(mlb[0].awayStarterWhip).toBe("0.98");
+  });
+
+  it("returns null ERA/WHIP (not undefined/NaN) when probable pitcher has no stats field", async () => {
+    const game = makeGame({
+      homeName: "Los Angeles Dodgers",
+      awayName: "San Francisco Giants",
+      homeProbable: "Clayton Kershaw",
+      awayProbable: "Logan Webb",
+      homeConfirmed: "Clayton Kershaw",
+      awayConfirmed: "Logan Webb",
+    });
+    vi.stubGlobal("fetch", mockFetch(mlbResponse([game])));
+
+    const starters = await fetchTodayStarters();
+    const mlb = starters.filter((s) => s.sport === "baseball_mlb");
+
+    expect(mlb).toHaveLength(1);
+    expect(mlb[0].confirmed).toBe(true);
+    expect(mlb[0].homeStarterEra).toBeNull();
+    expect(mlb[0].homeStarterWhip).toBeNull();
+    expect(mlb[0].awayStarterEra).toBeNull();
+    expect(mlb[0].awayStarterWhip).toBeNull();
+  });
+
+  it("returns null ERA/WHIP when probable pitcher stats array exists but splits is empty", async () => {
+    const game = {
+      teams: {
+        home: {
+          team: { name: "Chicago Cubs" },
+          probablePitcher: {
+            fullName: "Marcus Stroman",
+            stats: [
+              {
+                type: { displayName: "season" },
+                group: { displayName: "pitching" },
+                splits: [],
+              },
+            ],
+          },
+        },
+        away: {
+          team: { name: "St. Louis Cardinals" },
+          probablePitcher: { fullName: "Miles Mikolas" },
+        },
+      },
+      lineups: {
+        homePitchers: [{ person: { fullName: "Marcus Stroman" } }],
+        awayPitchers: [{ person: { fullName: "Miles Mikolas" } }],
+      },
+    };
+    vi.stubGlobal("fetch", mockFetch(mlbResponse([game])));
+
+    const starters = await fetchTodayStarters();
+    const mlb = starters.filter((s) => s.sport === "baseball_mlb");
+
+    expect(mlb).toHaveLength(1);
+    expect(mlb[0].confirmed).toBe(true);
+    expect(mlb[0].homeStarterEra).toBeNull();
+    expect(mlb[0].homeStarterWhip).toBeNull();
+  });
+
+  it("suppresses ERA/WHIP for unconfirmed probable starters (stats available but not yet confirmed)", async () => {
+    const game = makeGame({
+      homeName: "Houston Astros",
+      awayName: "Texas Rangers",
+      homeProbable: "Justin Verlander",
+      awayProbable: "Jacob deGrom",
+      homeProbableStats: { era: "2.75", whip: "0.92" },
+      awayProbableStats: { era: "3.50", whip: "1.10" },
+    });
+    vi.stubGlobal("fetch", mockFetch(mlbResponse([game])));
+
+    const starters = await fetchTodayStarters();
+    const mlb = starters.filter((s) => s.sport === "baseball_mlb");
+
+    expect(mlb).toHaveLength(1);
+    expect(mlb[0].confirmed).toBe(false);
+    expect(mlb[0].homeStarterEra).toBeNull();
+    expect(mlb[0].homeStarterWhip).toBeNull();
+    expect(mlb[0].awayStarterEra).toBeNull();
+    expect(mlb[0].awayStarterWhip).toBeNull();
+  });
+
+  it("returns null ERA/WHIP and no crash when MLB API times out", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (String(url).includes("statsapi.mlb.com")) {
+          return Promise.reject(
+            Object.assign(new DOMException("The operation was aborted.", "AbortError"), {
+              name: "AbortError",
+            }),
+          );
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ gameWeek: [] }) });
+      }),
+    );
+
+    const starters = await fetchTodayStarters();
+    const mlb = starters.filter((s) => s.sport === "baseball_mlb");
+
+    expect(mlb).toHaveLength(0);
+  });
+
+  it("nulls out ERA/WHIP when the confirmed lineup pitcher differs from the probable (stats not transferred)", async () => {
+    const game = makeGame({
+      homeName: "Atlanta Braves",
+      awayName: "Miami Marlins",
+      homeProbable: "Spencer Strider",
+      awayProbable: "Sandy Alcantara",
+      homeConfirmed: "Dylan Dodd",
+      awayConfirmed: "Sandy Alcantara",
+      homeProbableStats: { era: "1.85", whip: "0.82" },
+      awayProbableStats: { era: "2.28", whip: "0.95" },
+    });
+    vi.stubGlobal("fetch", mockFetch(mlbResponse([game])));
+
+    const starters = await fetchTodayStarters();
+    const mlb = starters.filter((s) => s.sport === "baseball_mlb");
+
+    expect(mlb).toHaveLength(1);
+    expect(mlb[0].confirmed).toBe(true);
+    expect(mlb[0].homeStarter).toBe("Dylan Dodd");
+    expect(mlb[0].homeStarterEra).toBeNull();
+    expect(mlb[0].homeStarterWhip).toBeNull();
+    expect(mlb[0].awayStarter).toBe("Sandy Alcantara");
+    expect(mlb[0].awayStarterEra).toBe("2.28");
+    expect(mlb[0].awayStarterWhip).toBe("0.95");
   });
 });

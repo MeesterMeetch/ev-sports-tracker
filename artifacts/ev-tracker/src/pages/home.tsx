@@ -437,7 +437,8 @@ export default function Home() {
             const isStale = bet.evPercent > EV_SANITY_THRESHOLD;
             const isOldLine = (bet.lineAgeMinutes ?? 0) > 120;
             const starter = findStarter(starters, bet.homeTeam, bet.awayTeam, bet.sport);
-            const showStarter = starter && (bet.sport === "baseball_mlb" || bet.sport === "icehockey_nhl") && bet.market === "h2h";
+            const isStarterGame = (bet.sport === "baseball_mlb" || bet.sport === "icehockey_nhl") && bet.market === "h2h";
+            const showStarter = isStarterGame;
 
             return (
               <Card key={`${bet.gameId}-${bet.selection}-${i}`} className={`border-border flex flex-col transition-opacity ${isStale ? "bg-card/30 opacity-80" : "bg-card/50"}`}>
@@ -455,7 +456,14 @@ export default function Home() {
                       {Array.from({ length: bet.confidence || 0 }).map((_, j) => <Star key={j} className="w-4 h-4 fill-yellow-500 text-yellow-500"/>)}
                     </div>
                   </div>
-                  {showStarter && <StarterBadge starter={starter}/>}
+                  {showStarter && (
+                    starter
+                      ? <StarterBadge starter={starter} />
+                      : <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
+                          <AlertTriangle className="w-3 h-3 shrink-0" />
+                          <span>{bet.sport === "baseball_mlb" ? "Pitcher TBD" : "Goalie TBD"}</span>
+                        </div>
+                  )}
                   {isStale && <StaleBadge/>}
                   {!isStale && isOldLine && <FreshnessBadge ageMinutes={bet.lineAgeMinutes!}/>}
                 </CardHeader>
