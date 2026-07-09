@@ -822,3 +822,305 @@ describe("GET /api/odds/ev-card", () => {
     expect(overEntry.sharpBook).toBe("LowVig");
   });
 });
+
+// ---------------------------------------------------------------------------
+// pointDiff > MAX_POINT_DIFF (1.5) — bets must be skipped, not silently misfired
+// ---------------------------------------------------------------------------
+
+describe("GET /api/odds/ev-card – skips bets when pointDiff exceeds MAX_POINT_DIFF", () => {
+  beforeEach(() => {
+    mockFetchMultiSportOdds.mockReset();
+  });
+
+  it("drops spread bets (not crash) when retail and sharp points differ by 2.0", async () => {
+    const game = {
+      id: "game-spreads-overdiff",
+      sport_key: "americanfootball_nfl",
+      sport_title: "NFL",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: -110, point: -3.5 },
+                { name: "TeamB", price: -110, point: 3.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              // Retail at -5.5 → pointDiff = 2.0 from sharp -3.5 → must be skipped
+              outcomes: [
+                { name: "TeamA", price: 115, point: -5.5 },
+                { name: "TeamB", price: -135, point: 5.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(makeOddsApiResponse([game]));
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card?minEv=0")
+      .expect(200);
+
+    const spreadBets = res.body.bets.filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+    const spreadNearMisses = res.body.nearMisses.filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+    expect(spreadBets).toHaveLength(0);
+    expect(spreadNearMisses).toHaveLength(0);
+  });
+
+  it("drops spread bets when retail and sharp points differ by 3.0", async () => {
+    const game = {
+      id: "game-spreads-3pt-diff",
+      sport_key: "americanfootball_nfl",
+      sport_title: "NFL",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: -110, point: -3.5 },
+                { name: "TeamB", price: -110, point: 3.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "spreads",
+              // Retail at -6.5 → pointDiff = 3.0 from sharp -3.5 → must be skipped
+              outcomes: [
+                { name: "TeamA", price: 115, point: -6.5 },
+                { name: "TeamB", price: -135, point: 6.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(makeOddsApiResponse([game]));
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card?minEv=0")
+      .expect(200);
+
+    const allSpread = [...res.body.bets, ...res.body.nearMisses].filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+    expect(allSpread).toHaveLength(0);
+  });
+
+  it("drops totals bets (not crash) when retail and sharp totals differ by 2.0", async () => {
+    const game = {
+      id: "game-totals-overdiff",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: -110, point: 9.5 },
+                { name: "Under", price: -110, point: 9.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              // Retail at 11.5 → pointDiff = 2.0 from sharp 9.5 → must be skipped
+              outcomes: [
+                { name: "Over", price: 115, point: 11.5 },
+                { name: "Under", price: -135, point: 11.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(makeOddsApiResponse([game]));
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card?minEv=0")
+      .expect(200);
+
+    const totalsBets = res.body.bets.filter(
+      (b: { market: string }) => b.market === "totals"
+    );
+    const totalsNearMisses = res.body.nearMisses.filter(
+      (b: { market: string }) => b.market === "totals"
+    );
+    expect(totalsBets).toHaveLength(0);
+    expect(totalsNearMisses).toHaveLength(0);
+  });
+
+  it("drops totals bets when retail and sharp totals differ by 3.5", async () => {
+    const game = {
+      id: "game-totals-3pt5-diff",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              outcomes: [
+                { name: "Over", price: -110, point: 9.5 },
+                { name: "Under", price: -110, point: 9.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "totals",
+              // Retail at 13 → pointDiff = 3.5 from sharp 9.5 → must be skipped
+              outcomes: [
+                { name: "Over", price: 115, point: 13 },
+                { name: "Under", price: -135, point: 13 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(makeOddsApiResponse([game]));
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card?minEv=0")
+      .expect(200);
+
+    const allTotals = [...res.body.bets, ...res.body.nearMisses].filter(
+      (b: { market: string }) => b.market === "totals"
+    );
+    expect(allTotals).toHaveLength(0);
+  });
+
+  it("still surfaces h2h bets from the same game even when spread/totals are dropped due to point diff", async () => {
+    const game = {
+      id: "game-mixed-overdiff",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "lowvig",
+          title: "LowVig",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [
+                { name: "TeamA", price: -110 },
+                { name: "TeamB", price: -110 },
+              ],
+            },
+            {
+              key: "spreads",
+              outcomes: [
+                { name: "TeamA", price: -110, point: -3.5 },
+                { name: "TeamB", price: -110, point: 3.5 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [
+                { name: "TeamA", price: 115 },
+                { name: "TeamB", price: -135 },
+              ],
+            },
+            {
+              key: "spreads",
+              // Spread diff = 2.0 → skipped
+              outcomes: [
+                { name: "TeamA", price: 115, point: -5.5 },
+                { name: "TeamB", price: -135, point: 5.5 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(makeOddsApiResponse([game]));
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card?minEv=0")
+      .expect(200);
+
+    const h2hBets = [...res.body.bets, ...res.body.nearMisses].filter(
+      (b: { market: string }) => b.market === "h2h"
+    );
+    const spreadBets = [...res.body.bets, ...res.body.nearMisses].filter(
+      (b: { market: string }) => b.market === "spreads"
+    );
+
+    expect(h2hBets.length).toBeGreaterThan(0);
+    expect(spreadBets).toHaveLength(0);
+  });
+});

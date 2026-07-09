@@ -46,6 +46,13 @@ export function breakEvenOddsForEV(estimatedProb: number, targetEvPct: number): 
 }
 
 /**
+ * Maximum acceptable point difference between a retail line and its nearest
+ * sharp equivalent. Results with a larger pointDiff are unreliable and should
+ * be skipped by the EV loop rather than used for probability estimation.
+ */
+export const MAX_POINT_DIFF = 1.5;
+
+/**
  * Finds the sharp entry for a given team name and point.
  * Tries exact match first; falls back to the entry with the closest point
  * for the same team name when lines have moved between sharp and retail books.

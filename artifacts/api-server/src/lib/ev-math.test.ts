@@ -9,6 +9,7 @@ import {
   breakEvenOddsForEV,
   extractSharpLineProbs,
   findNearestSharpEntry,
+  MAX_POINT_DIFF,
 } from "./ev-math";
 
 // ---------------------------------------------------------------------------
@@ -476,6 +477,63 @@ describe("findNearestSharpEntry – totals nearest-point fallback", () => {
       expect(typeof result.entry.point).toBe("number");
       expect(typeof result.pointDiff).toBe("number");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MAX_POINT_DIFF – threshold enforcement
+// ---------------------------------------------------------------------------
+
+describe("MAX_POINT_DIFF constant", () => {
+  it("is defined and equals 1.5", () => {
+    expect(MAX_POINT_DIFF).toBe(1.5);
+  });
+});
+
+describe("findNearestSharpEntry – pointDiff vs MAX_POINT_DIFF", () => {
+  function makeMap(
+    entries: Array<{ name: string; point: number; odds: number }>,
+  ): Map<string, { odds: number; point: number }> {
+    const m = new Map<string, { odds: number; point: number }>();
+    for (const e of entries) {
+      m.set(`${e.name}_${e.point}`, { odds: e.odds, point: e.point });
+    }
+    return m;
+  }
+
+  it("returns a result with pointDiff exactly at threshold (1.5) — caller must decide", () => {
+    const map = makeMap([{ name: "TeamA", point: -3.5, odds: -110 }]);
+    const result = findNearestSharpEntry(map, "TeamA", -5);
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(1.5);
+    expect(result!.pointDiff).not.toBeGreaterThan(MAX_POINT_DIFF);
+  });
+
+  it("returns a result with pointDiff of 2.0 that exceeds MAX_POINT_DIFF — caller should skip", () => {
+    const map = makeMap([{ name: "TeamA", point: -3.5, odds: -110 }]);
+    const result = findNearestSharpEntry(map, "TeamA", -5.5);
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(2.0);
+    expect(result!.pointDiff).toBeGreaterThan(MAX_POINT_DIFF);
+  });
+
+  it("returns a result with pointDiff of 3.0 that greatly exceeds MAX_POINT_DIFF — caller should skip", () => {
+    const map = makeMap([{ name: "Over", point: 9.5, odds: -110 }]);
+    const result = findNearestSharpEntry(map, "Over", 6.5);
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(3.0);
+    expect(result!.pointDiff).toBeGreaterThan(MAX_POINT_DIFF);
+  });
+
+  it("returns a result within MAX_POINT_DIFF (diff = 1.0) that is safe to use", () => {
+    const map = makeMap([
+      { name: "TeamA", point: -3.5, odds: -108 },
+      { name: "TeamB", point: 3.5, odds: -112 },
+    ]);
+    const result = findNearestSharpEntry(map, "TeamA", -4.5);
+    expect(result).not.toBeNull();
+    expect(result!.pointDiff).toBeCloseTo(1.0);
+    expect(result!.pointDiff).toBeLessThanOrEqual(MAX_POINT_DIFF);
   });
 });
 

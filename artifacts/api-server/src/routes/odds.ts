@@ -11,6 +11,7 @@ import {
   breakEvenOddsForEV,
   extractSharpLineProbs,
   findNearestSharpEntry,
+  MAX_POINT_DIFF,
 } from "../lib/ev-math";
 import { logger } from "../lib/logger";
 
@@ -170,6 +171,21 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
             for (const outcome of outcomes) {
               const found1 = findNearestSharpEntry(sharp.spreads, outcome.name, outcome.point ?? 0);
               if (!found1) continue;
+              if (found1.pointDiff > MAX_POINT_DIFF) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    retailPoint: outcome.point,
+                    sharpPoint: found1.entry.point,
+                    pointDiff: found1.pointDiff,
+                    maxAllowed: MAX_POINT_DIFF,
+                  },
+                  "spreads: point diff exceeds MAX_POINT_DIFF — skipping bet",
+                );
+                continue;
+              }
               const sharpEntry = found1.entry;
 
               const retailOther = outcomes.find((o) => o.name !== outcome.name);
@@ -185,6 +201,22 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                     missingOtherSide: retailOther.name,
                   },
                   "spreads: sharp book missing other-side outcome — skipping this outcome",
+                );
+                continue;
+              }
+              if (found2.pointDiff > MAX_POINT_DIFF) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    otherSide: retailOther.name,
+                    retailPoint: retailOther.point,
+                    sharpPoint: found2.entry.point,
+                    pointDiff: found2.pointDiff,
+                    maxAllowed: MAX_POINT_DIFF,
+                  },
+                  "spreads: other-side point diff exceeds MAX_POINT_DIFF — skipping bet",
                 );
                 continue;
               }
@@ -246,6 +278,21 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
             for (const outcome of outcomes) {
               const found1 = findNearestSharpEntry(sharp.totals, outcome.name, outcome.point ?? 0);
               if (!found1) continue;
+              if (found1.pointDiff > MAX_POINT_DIFF) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    retailPoint: outcome.point,
+                    sharpPoint: found1.entry.point,
+                    pointDiff: found1.pointDiff,
+                    maxAllowed: MAX_POINT_DIFF,
+                  },
+                  "totals: point diff exceeds MAX_POINT_DIFF — skipping bet",
+                );
+                continue;
+              }
               const sharpEntry = found1.entry;
 
               const retailOther = outcomes.find((o) => o.name !== outcome.name);
@@ -261,6 +308,22 @@ router.get("/odds/ev-card", async (req, res): Promise<void> => {
                     missingOtherSide: retailOther.name,
                   },
                   "totals: sharp book missing other-side outcome — skipping this outcome",
+                );
+                continue;
+              }
+              if (found2.pointDiff > MAX_POINT_DIFF) {
+                logger.warn(
+                  {
+                    game: `${game.home_team} vs ${game.away_team}`,
+                    bookie: bookie.key,
+                    selection: outcome.name,
+                    otherSide: retailOther.name,
+                    retailPoint: retailOther.point,
+                    sharpPoint: found2.entry.point,
+                    pointDiff: found2.pointDiff,
+                    maxAllowed: MAX_POINT_DIFF,
+                  },
+                  "totals: other-side point diff exceeds MAX_POINT_DIFF — skipping bet",
                 );
                 continue;
               }
