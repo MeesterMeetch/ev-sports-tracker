@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startClvCapture } from "./lib/clv";
 
 const rawPort = process.env["PORT"];
 
@@ -23,4 +24,5 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+  startClvCapture();
 });

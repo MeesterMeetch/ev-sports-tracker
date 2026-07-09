@@ -76,6 +76,20 @@ export async function fetchOdds(sportKey: string, markets = "h2h,spreads,totals"
   });
 }
 
+/**
+ * Fetches odds for a single event. Much cheaper than a full sport scan when
+ * capturing closing lines: cost scales with markets requested, not with the
+ * number of games on the slate.
+ */
+export async function fetchEventOdds(sportKey: string, eventId: string, markets: string): Promise<{ data: OddsGame; requestsRemaining: number | null }> {
+  return oddsApiFetch<OddsGame>(`/sports/${sportKey}/events/${eventId}/odds`, {
+    regions: "us",
+    markets,
+    oddsFormat: "american",
+    dateFormat: "iso",
+  });
+}
+
 export async function fetchMultiSportOdds(sportKeys: string[], markets = "h2h,spreads,totals"): Promise<{ games: OddsGame[]; requestsRemaining: number | null; quotaExhausted: boolean }> {
   const allGames: OddsGame[] = [];
   let requestsRemaining: number | null = null;

@@ -8,7 +8,7 @@ import {
   UpdateBetParams,
   DeleteBetParams,
 } from "@workspace/api-zod";
-import { americanToImpliedProb } from "../lib/ev-math";
+import { calcClvPercent } from "../lib/clv-math";
 
 const router: IRouter = Router();
 
@@ -95,9 +95,7 @@ router.patch("/bets/:id", async (req, res): Promise<void> => {
     updateData.closingOdds = d.closingOdds;
     const [existing] = await db.select().from(betsTable).where(eq(betsTable.id, params.data.id)).limit(1);
     if (existing) {
-      const yourImplied = americanToImpliedProb(parseFloat(existing.americanOdds));
-      const closingImplied = americanToImpliedProb(d.closingOdds);
-      updateData.clvPercent = String(Math.round((closingImplied - yourImplied) * 10000) / 100);
+      updateData.clvPercent = String(calcClvPercent(parseFloat(existing.americanOdds), d.closingOdds));
     }
   }
 
