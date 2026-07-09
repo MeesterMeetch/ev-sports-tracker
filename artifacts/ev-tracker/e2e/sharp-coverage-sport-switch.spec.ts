@@ -554,6 +554,102 @@ test.describe("SharpCoverageBanner — background auto-refresh error resilience"
   });
 });
 
+// Recovery path for the error-resilience cases above: after the background
+// refetch fails (500, retried once by React Query), the API "recovers" — the
+// mock route fulfills successfully again. Clicking the Retry button in the
+// ErrorState ("Try again") calls handleRefresh, which refetches the ev-card.
+// The error card must clear, bet cards must re-render from the fresh
+// response, and the coverage banner must update to the new coverage numbers
+// with no stale error state left behind.
+const NBA_RECOVERED_CARD = makeEvCard(
+  {
+    gamesEvaluated: 10,
+    gamesWithSharpH2H: 9,
+    gamesWithSharpSpreads: 4,
+    gamesWithSharpTotals: 7,
+  },
+  [SPREADS_BET],
+);
+
+test.describe("SharpCoverageBanner — background auto-refresh error recovery via Retry", () => {
+  test("clicking Retry after a failed refresh clears the error card, restores bets, and updates coverage", async ({ page }) => {
+    await page.clock.install();
+    await setupRoutes(page);
+
+    let nbaRequests = 0;
+    await page.route("**/api/odds/ev-card**", (route: Route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get("sport") === "basketball_nba") {
+        nbaRequests += 1;
+        if (nbaRequests === 1) {
+          // Initial load: zero-spreads coverage with one bet.
+          route.fulfill({ json: NBA_ZERO_SPREADS_CARD });
+        } else if (nbaRequests <= 3) {
+          // Background refresh fails (initial attempt + one React Query retry).
+          route.fulfill({ status: 500, json: { message: "Internal Server Error" } });
+        } else {
+          // API has recovered: fresh data with different coverage numbers.
+          route.fulfill({ json: NBA_RECOVERED_CARD });
+        }
+      } else {
+        route.fulfill({ json: ALL_SPORTS_CARD });
+      }
+    });
+
+    await page.goto("/");
+    await page.waitForSelector('[data-testid="select-sport"]', { timeout: 15_000 });
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toBeVisible({ timeout: 10_000 });
+
+    const sportSelect = page.locator('[data-testid="select-sport"]');
+    await sportSelect.click();
+    await page.getByRole("option", { name: "NBA Basketball", exact: true }).click();
+
+    // Initial NBA load: bet card, zero-spreads coverage, red warning.
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10", { timeout: 10_000 });
+    await expect(page.locator('[data-testid="warning-spreads"]')).toBeVisible();
+    await expect(page.getByText("Celtics @ Lakers")).toBeVisible();
+    expect(nbaRequests).toBe(1);
+
+    // Fast-forward past the 300 s auto-refresh countdown so handleRefresh runs.
+    await page.clock.runFor(301_000);
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+
+    // Advance past the React Query retry delay so the query settles into error.
+    await page.clock.runFor(5_000);
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+
+    // Error card replaces the bet-card area; kept coverage data still shows.
+    await expect(page.getByText("Couldn't reach the market feed")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Celtics @ Lakers")).not.toBeVisible();
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10");
+
+    const requestsBeforeRetry = nbaRequests;
+
+    // The API has recovered — click Retry in the error card.
+    await page.getByRole("button", { name: "Try again" }).click();
+
+    // A fresh request goes out and succeeds.
+    await expect.poll(() => nbaRequests, { timeout: 10_000 }).toBeGreaterThan(requestsBeforeRetry);
+
+    // Error card clears...
+    await expect(page.getByText("Couldn't reach the market feed")).not.toBeVisible({ timeout: 10_000 });
+
+    // ...bet cards re-render from the fresh response...
+    await expect(page.getByText("Celtics @ Lakers")).toBeVisible({ timeout: 10_000 });
+
+    // ...and the coverage banner updates to the new numbers: spreads is now
+    // 4/10 (low coverage, amber), no longer the red zero-coverage warning.
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("4/10", { timeout: 10_000 });
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toHaveText("9/10");
+    await expect(page.locator('[data-testid="coverage-totals"]')).toHaveText("7/10");
+    const spreadsWarning = page.locator('[data-testid="warning-spreads"]');
+    await expect(spreadsWarning).not.toContainText("No sharp lines");
+
+    // No stale error state left behind after the successful retry.
+    await expect(page.getByText("Couldn't reach the market feed")).not.toBeVisible();
+  });
+});
+
 const NBA_MIXED_ZERO_AND_LOW_CARD = makeEvCard(
   {
     gamesEvaluated: 10,
