@@ -35,6 +35,14 @@ const REFRESH_SECONDS = 300;
 const EV_SANITY_THRESHOLD = 30;
 const NEAR_MISS_MIN_EV = 2.0;
 
+// Starters (pitchers/goalies) poll faster than the odds scan: the API server's
+// error cache clears 90 s after an upstream outage ends, and polling at 60 s
+// ensures the UI picks up the server's fresh data within that window without a
+// reload. (End-to-end worst case from upstream recovery is ~150 s: up to 90 s
+// of server error-cache remainder plus one 60 s poll cycle.)
+// Cheap: it only hits our own server's in-memory cache, not external APIs.
+export const STARTERS_REFETCH_INTERVAL_MS = 60 * 1000;
+
 type DateFilter = "all" | "today" | "tonight" | "tomorrow";
 type MarketFilter = "all" | "h2h" | "spreads" | "totals";
 
@@ -263,7 +271,7 @@ export default function Home() {
 
   const { data: sports } = useListSports();
   const { data: starters = [] } = useListStarters({
-    query: { queryKey: getListStartersQueryKey(), refetchInterval: 5 * 60 * 1000 },
+    query: { queryKey: getListStartersQueryKey(), refetchInterval: STARTERS_REFETCH_INTERVAL_MS },
   });
   const { data: existingBets = [] } = useListBets();
 
