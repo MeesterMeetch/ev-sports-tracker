@@ -144,6 +144,19 @@ async function setupRoutes(page: import("@playwright/test").Page) {
   });
 }
 
+const NBA_ZERO_SPREADS_AND_TOTALS_CARD = makeEvCard(
+  {
+    gamesEvaluated: 10,
+    gamesWithSharpH2H: 9,
+    gamesWithSharpSpreads: 0,
+    gamesWithSharpTotals: 0,
+  },
+  [
+    { ...SPREADS_BET },
+    { ...TOTALS_BET, gameId: "nba-game-2", sport: "basketball_nba", homeTeam: "Warriors", awayTeam: "Suns", selection: "Over 220.5" },
+  ],
+);
+
 test.describe("SharpCoverageBanner — sport switch", () => {
   test.beforeEach(async ({ page }) => {
     await setupRoutes(page);
@@ -274,5 +287,47 @@ test.describe("SharpCoverageBanner — sport switch", () => {
 
     await expect(page.locator('[data-testid="warning-h2h"]')).not.toBeVisible();
     await expect(page.locator('[data-testid="warning-spreads"]')).not.toBeVisible();
+  });
+});
+
+test.describe("SharpCoverageBanner — combined zero coverage", () => {
+  test.beforeEach(async ({ page }) => {
+    await setupRoutes(page);
+    await page.route("**/api/odds/ev-card**", (route: Route) => {
+      const params = new URL(route.request().url()).searchParams;
+      if (params.get("sport") === "basketball_nba") {
+        route.fulfill({ json: NBA_ZERO_SPREADS_AND_TOTALS_CARD });
+      } else {
+        route.fulfill({ json: ALL_SPORTS_CARD });
+      }
+    });
+    await page.goto("/");
+    await page.waitForSelector('[data-testid="select-sport"]', { timeout: 15_000 });
+    await expect(page.locator('[data-testid="coverage-moneyline"]')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("both red warnings show simultaneously when spreads and totals are both zero-coverage", async ({ page }) => {
+    const sportSelect = page.locator('[data-testid="select-sport"]');
+    await sportSelect.click();
+    await page.getByRole("option", { name: "NBA Basketball", exact: true }).click();
+
+    await expect(page.locator('[data-testid="coverage-spreads"]')).toHaveText("0/10", { timeout: 10_000 });
+    await expect(page.locator('[data-testid="coverage-totals"]')).toHaveText("0/10");
+
+    const spreadsWarning = page.locator('[data-testid="warning-spreads"]');
+    const totalsWarning = page.locator('[data-testid="warning-totals"]');
+
+    await expect(spreadsWarning).toBeVisible();
+    await expect(totalsWarning).toBeVisible();
+
+    await expect(spreadsWarning).toContainText("No sharp lines");
+    await expect(spreadsWarning).toContainText("Spreads EV is unreliable for this market");
+    await expect(totalsWarning).toContainText("No sharp lines");
+    await expect(totalsWarning).toContainText("Totals EV is unreliable for this market");
+
+    await expect(spreadsWarning).toHaveClass(/border-red-500/);
+    await expect(totalsWarning).toHaveClass(/border-red-500/);
+
+    await expect(page.locator('[data-testid="warning-h2h"]')).not.toBeVisible();
   });
 });
