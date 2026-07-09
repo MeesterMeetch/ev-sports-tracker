@@ -231,6 +231,100 @@ describe("GET /api/odds/ev-card", () => {
     }
   });
 
+  it("returns 200 with valid finite evPercent values when no sharp book is present (retail-only h2h)", async () => {
+    // Only retail books — no LowVig or BetOnline — forces the h2h loop to use
+    // buildConsensusH2H. This test confirms the route stays clean: no crash, no
+    // NaN/Infinity evPercent, correct response shape.
+    const gameRetailOnly = {
+      id: "game-retail-only-h2h",
+      sport_key: "baseball_mlb",
+      sport_title: "MLB",
+      commence_time: futureTime,
+      home_team: "TeamA",
+      away_team: "TeamB",
+      bookmakers: [
+        {
+          key: "draftkings",
+          title: "DraftKings",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [
+                { name: "TeamA", price: -110 },
+                { name: "TeamB", price: -110 },
+              ],
+            },
+          ],
+        },
+        {
+          // FanDuel has TeamA at a juicy price vs the consensus → should surface as +EV
+          key: "fanduel",
+          title: "FanDuel",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [
+                { name: "TeamA", price: 120 },
+                { name: "TeamB", price: -140 },
+              ],
+            },
+          ],
+        },
+        {
+          key: "betmgm",
+          title: "BetMGM",
+          last_update: recentUpdate,
+          markets: [
+            {
+              key: "h2h",
+              outcomes: [
+                { name: "TeamA", price: -110 },
+                { name: "TeamB", price: -110 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    mockFetchMultiSportOdds.mockResolvedValue(
+      makeOddsApiResponse([gameRetailOnly])
+    );
+
+    const res = await supertest(makeTestApp())
+      .get("/api/odds/ev-card")
+      .expect(200);
+
+    expect(res.body).toHaveProperty("bets");
+    expect(res.body).toHaveProperty("nearMisses");
+    expect(res.body).toHaveProperty("hasBets");
+    expect(Array.isArray(res.body.bets)).toBe(true);
+    expect(Array.isArray(res.body.nearMisses)).toBe(true);
+
+    const allBets = [...res.body.bets, ...res.body.nearMisses];
+
+    // At least one outcome should be surfaced (FanDuel TeamA is +EV vs consensus)
+    expect(allBets.length).toBeGreaterThan(0);
+
+    // Core guarantee: no NaN or Infinity evPercent values
+    for (const bet of allBets) {
+      expect(Number.isFinite(bet.evPercent)).toBe(true);
+      expect(bet.evPercent).not.toBeNaN();
+      expect(bet.sharpBook).toBe("Consensus");
+    }
+
+    // Verify the +EV bet from FanDuel is present and correctly attributed
+    const fanduelBet = res.body.bets.find(
+      (b: { bookmaker: string; selection: string }) =>
+        b.bookmaker === "FanDuel" && b.selection === "TeamA"
+    );
+    expect(fanduelBet).toBeDefined();
+    expect(fanduelBet.evPercent).toBeGreaterThan(0);
+    expect(Number.isFinite(fanduelBet.evPercent)).toBe(true);
+  });
+
   it("surfaces near-misses when EV is positive but below minEv threshold", async () => {
     const gameNearMiss = {
       ...FIXTURE_GAME_LOWVIG,
