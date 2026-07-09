@@ -104,7 +104,7 @@ function StarterBadge({ starter }: { starter: GameStarter }) {
         ? `${starter.awayStarter} vs. ${starter.homeStarter}`
         : starter.homeStarter || starter.awayStarter || "";
       return (
-        <div className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-green-500/10 border border-green-500/30 text-green-400 text-xs">
+        <div data-testid="starter-badge" className="flex items-center gap-1 mt-2 rounded px-2 py-1 bg-green-500/10 border border-green-500/30 text-green-400 text-xs">
           <Check className="w-3 h-3 shrink-0" />
           <span>Starting goalies: {label}</span>
         </div>
@@ -134,7 +134,7 @@ function StarterBadge({ starter }: { starter: GameStarter }) {
       ? `ERA ${starter.homeStarterEra ?? "—"} / WHIP ${starter.homeStarterWhip ?? "—"}`
       : null;
     return (
-      <div className="mt-2 rounded px-2 py-1.5 bg-green-500/10 border border-green-500/30 text-green-400 text-xs space-y-0.5">
+      <div data-testid="starter-badge" className="mt-2 rounded px-2 py-1.5 bg-green-500/10 border border-green-500/30 text-green-400 text-xs space-y-0.5">
         <div className="flex items-center gap-1">
           <Check className="w-3 h-3 shrink-0" />
           <span className="font-medium">Confirmed starters</span>
