@@ -76,6 +76,27 @@ export async function fetchOdds(sportKey: string, markets = "h2h,spreads,totals"
   });
 }
 
+export interface ScoresGame {
+  id: string;
+  sport_key: string;
+  commence_time: string;
+  completed: boolean;
+  home_team: string;
+  away_team: string;
+  scores: Array<{ name: string; score: string }> | null;
+}
+
+/**
+ * Fetches final and in-progress scores. Costs 2 credits per call when
+ * daysFrom is supplied (needed to include recently completed games).
+ */
+export async function fetchScores(sportKey: string, daysFrom = 3): Promise<{ data: ScoresGame[]; requestsRemaining: number | null }> {
+  return oddsApiFetch<ScoresGame[]>(`/sports/${sportKey}/scores`, {
+    daysFrom: String(daysFrom),
+    dateFormat: "iso",
+  });
+}
+
 /**
  * Fetches odds for a single event. Much cheaper than a full sport scan when
  * capturing closing lines: cost scales with markets requested, not with the
